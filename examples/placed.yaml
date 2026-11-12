@@ -1,0 +1,19 @@
+# Stated placement: this level says where each box sits; strata works out only the distances.
+title: Request path
+widths: match
+nodes:
+  - {id: browser, label: Browser, kind: external}
+  - {id: api, label: API server, kind: service, place: right of browser}
+  - {id: db, label: Postgres, kind: store, shape: cylinder, place: right of api wide}
+  - {id: worker, label: Worker, kind: service, place: below api}
+  - {id: cache, label: Redis, kind: store, shape: cylinder, place: [below db, level with worker]}
+  - id: aside
+    label: Why the worker is separate
+    note: It shares the database but takes no HTTP traffic, so a slow job never blocks a request.
+    place: below worker
+edges:
+  - [browser, api, HTTP]
+  - [api, db, SQL]
+  - [api, worker, enqueue]
+  - [worker, db, writes]
+  - [worker, cache]

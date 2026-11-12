@@ -60,6 +60,23 @@ ${viewer}
 `;
 }
 
+// Which titles will be too small to read when their container fills an ordinary window. The
+// viewer shrinks text to fit its box, so a crowded level stays correct but becomes illegible.
+export function legibility(model, vw = 1440, vh = 800) {
+  const out = [];
+  walk(model.root, nd => {
+    if (!nd.children) return;
+    const k = Math.min(vw * 0.92 / nd.iw, (vh - 100) * 0.92 / nd.ih), small = [];
+    for (const c of nd.children) {
+      const lines = c.label.split('\n'), rows = lines.length * 1.2 + (c.sub ? 0.85 : 0) + (c.children ? 1 : 0);
+      const px = Math.min(22, c.w * k * (c.shape === 'diamond' ? 0.6 : 0.86) / (Math.max(...lines.map(l => l.length)) * 0.6), c.h * k * (c.shape === 'diamond' ? 0.5 : 0.7) / rows);
+      if (px < 7.5) small.push(c.id);
+    }
+    if (small.length) out.push(`when ${nd.id === '__root' ? 'the top level' : '"' + nd.id + '"'} fills a ${vw}x${vh} window, ${small.length} of its ${nd.children.length} titles are too small to read (${small.join(', ')}): use shorter labels or fewer boxes at this level`);
+  });
+  return out;
+}
+
 export function outline(model) { // a text picture of the tree, for people and for Claude to check its own work
   const lines = [];
   let boxes = 0, depth = 0;

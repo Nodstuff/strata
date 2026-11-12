@@ -12,7 +12,8 @@ const KINDS = { // built in; a file's `kinds` adds to or overrides these
 };
 const STYLES = { flow: { rank: 1 }, yes: { color: 'green', rank: 2, width: 1.6 }, no: { color: 'red', rank: 2, width: 1.6 } };
 const SHAPES = { box: 'box', diamond: 'diamond', cylinder: 'cylinder', cyl: 'cylinder', actor: 'actor' };
-const NODE_KEYS = new Set(['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'ref', 'group', 'flow', 'nodes']);
+const NODE_KEYS = new Set(['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'ref', 'group', 'flow', 'place', 'about', 'widths', 'nodes']);
+const PLACE = /^(above|below|left of|right of|level with)\s+([\w.-]+)(?:\s+(none|tight|normal|wide))?$/;
 
 export function load(text) {
   const errors = [], warnings = [];
@@ -77,10 +78,20 @@ export function load(text) {
     if (raw.ref != null) nd.ref = String(raw.ref);
     if (raw.group) { if (kids) nd.group = true; else errors.push(`${at}: group only makes sense on a node with nodes inside it`); }
     if (raw.flow != null) { if (raw.flow !== 'down' && raw.flow !== 'right') errors.push(`${at}: flow must be down or right`); else nd.flow = raw.flow; }
+    if (raw.place != null) {
+      nd.place = [];
+      for (const text of Array.isArray(raw.place) ? raw.place : [raw.place]) {
+        const m = PLACE.exec(String(text).trim());
+        if (!m) errors.push(`${at}: cannot read place "${text}" (write: above X, below X, left of X, right of X or level with X, optionally followed by none, tight, normal or wide)`);
+        else nd.place.push({ rel: m[1].split(' ')[0], target: m[2], gap: m[3] || 'normal' });
+      }
+    }
+    if (raw.about != null) { if (!nd.note) errors.push(`${at}: about only makes sense on a note`); else nd.about = String(raw.about); }
+    if (raw.widths != null) { if (raw.widths !== 'match' || !kids) errors.push(`${at}: widths takes only "match", on a node with nodes inside it`); else nd.widths = 'match'; }
     if (kids) {
       nd.children = kids.map((k, i) => node(k, `${at} › nodes[${i}]`)).filter(Boolean);
       if (!nd.children.length) { errors.push(`${at}: nodes is empty`); delete nd.children; }
-      else if (nd.children.length > 16) warnings.push(`${at} has ${nd.children.length} boxes inside it; more than about 12 is hard to read at one level, consider nesting`);
+      else if (nd.children.length > 16) warnings.push(`${at} has ${nd.children.length} boxes inside it; more than 16 is hard to read at one level, consider nesting`);
     }
     return nd;
   };
@@ -89,8 +100,16 @@ export function load(text) {
   const root = { id: '__root', label: String(doc.title || 'Untitled diagram'), kind: 'frame', group: true, children: (Array.isArray(doc.nodes) ? doc.nodes : []).map((k, i) => node(k, `nodes[${i}]`)).filter(Boolean) };
   if (doc.subtitle != null) root.sub = String(doc.subtitle);
   if (doc.flow === 'right' || doc.flow === 'down') root.flow = doc.flow;
+  if (doc.widths === 'match') root.widths = 'match';
 
   for (const nd of byId.values()) if (nd.ref && !byId.has(nd.ref)) errors.push(`node "${nd.id}": ref points at "${nd.ref}", which does not exist`);
+  walk(root, nd => { // a placement, and a note's subject, must name a box in the same container
+    const here = new Set((nd.children || []).map(c => c.id));
+    for (const c of nd.children || []) {
+      for (const p of c.place || []) if (p.target === c.id || !here.has(p.target)) errors.push(`node "${c.id}": place names "${p.target}", which is not another box in the same container`);
+      if (c.about && (c.about === c.id || !here.has(c.about))) errors.push(`node "${c.id}": about names "${c.about}", which is not another box in the same container`);
+    }
+  });
 
   const edges = [];
   (Array.isArray(doc.edges) ? doc.edges : doc.edges == null ? [] : (errors.push('edges must be a list'), [])).forEach((raw, i) => {

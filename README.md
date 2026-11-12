@@ -18,7 +18,7 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 | `src/build.js` | Assembles the HTML page; also the text outline `check` prints. |
 | `bin/strata.js` | The command line. |
 | `skill/SKILL.md` | What Claude reads to write diagrams: the file format and how to structure one. |
-| `examples/` | Diagrams that are safe to share. |
+| `examples/` | Diagrams that are safe to share: `shop.yaml` (automatic layout, three levels) and `placed.yaml` (stated placement). |
 | `private/` | Diagrams that are not (git-ignored). |
 
 ## How it works
@@ -27,6 +27,8 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 - **Opening** depends on one number: the share of the viewport a container covers (closed below 34%, open above 46%). Layout keeps every closed container under 30% of its parent, so it is still closed when the parent fills the screen.
 - **Arrows** resolve, every frame, to the deepest visible box at each end. Arrows that end up between the same two boxes merge and take the highest-ranked style among them.
 - **Routes** are built from pieces made at build time. Between two boxes in one container the piece is ELK's. Where that piece meets a container's border is the container's port for the arrow, and inside the container a right-angle route (a small Dijkstra search in `layout.js`) runs from the port to the box the arrow is really for, round every other box. The viewer strings the pieces for whatever is open into one line.
+- **Stated placement**: a container whose boxes carry `place` is not given to ELK. `placeStated` in `layout.js` turns the statements into minimum-distance constraints per axis, solves them by longest path, and reports anything ambiguous as an error. Its arrows are drawn by the same router as the cross-container pieces.
+- **Lanes**: the router knows which segments are already drawn in a container and charges for running along another arrow's line, so parallel arrows take neighbouring lanes 9 units apart.
 - **Layout choice**: each container is laid out up to six ways (down or right, with the file's order held firmly, loosely or not at all) and the least busy result is kept, scored on arrow length, bends, crossings and how screen-shaped it is.
 
 ## State

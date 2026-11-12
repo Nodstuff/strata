@@ -80,11 +80,35 @@ edges:
 | `ref` | The id of another box. This box becomes a reference: a stand-in that names the real thing, and one click flies there. A reference is only a picture. If the dependency is real, also declare an arrow between the reference box and the real box (`[ck_pay, payments, authorise, mtls]`): it is not drawn inside the flow, where the reference box already says it, but it appears as a proper arrow at every level above. |
 | `group` | `true` on a box with nodes: draw it as an always-open frame at its parent's scale (an AWS account, a VPC, a swimlane) instead of a box you zoom into. |
 | `flow` | `down` or `right`: the direction this box's contents are laid out. **Leave it out by default**, at the top level too: strata then tries both and keeps the one that fits a screen better. Set it only when the picture shows the direction is wrong. A flow with a declared direction that comes out as a very thin strip is folded onto extra rows, which adds long loop-back arrows. |
+| `place` | Where this box sits relative to another box in the same container: `right of api`, `left of api`, `above api`, `below api`, `level with api`. A list gives several. See "Stating the arrangement". |
+| `about` | On a note: the id of the box in the same container that the note is about. The note is laid out next to it. |
+| `widths` | `match` on a box with nodes: the plain boxes inside it all take the width of the widest. Also allowed at the top of the file for the top level. |
 | `nodes` | The boxes inside this box. |
 
 ### Arrow styles
 
 `flow` (default, neutral), `yes` (green) and `no` (red) are built in. If the diagram has decisions, do not give one of your own styles green or red, or a Yes branch will read as that style; redefine `yes` and `no` under `styles:` instead if you need those colours. In the array form, write `""` for the label when you want a style and no text: `[a, b, "", mtls]`. Declare others under `styles:` with `color`, optional `dash: dashed | dotted`, `width`, `arrow: none`, a `label` for the legend, and a `rank`. **Rank decides which style a merged arrow takes: the highest rank wins.** Give the worst case the highest rank (plaintext above TLS above mTLS), so a closed box never hides a bad link: seven arrows merge into "7 links · 5 plaintext", drawn red.
+
+## Stating the arrangement
+
+By default strata arranges each level itself. When a level should look a particular way (a request path left to right, a tier diagram, a page someone already knows from a whiteboard), say where the boxes go. Placement is per container: the levels you say nothing about stay automatic.
+
+```yaml
+nodes:
+  - {id: browser, label: Browser}
+  - {id: api, label: API server, place: right of browser}
+  - {id: db, label: Postgres, place: right of api wide}
+  - {id: worker, label: Worker, place: below api}
+  - {id: cache, label: Redis, place: [below db, level with worker]}
+```
+
+- **A gap is a minimum, never an exact distance.** Everything ends up as close together as the statements allow. An optional last word sets the gap: `none`, `tight`, `normal` (default) or `wide`.
+- **One direction on its own also lines the box up.** `right of api` puts the box on api's row; `below api` puts it in api's column. That half drops away once another placement says something about that axis: `[below db, level with worker]` is db's column and worker's row.
+- **Once one box in a container has `place`, every box in it but one must have it.** The one without is what the rest are placed against, directly or through each other. Notes count as boxes.
+- **Nothing is guessed.** Two boxes that would overlap, a box that names two columns and no row, a circle of placements: each is an error naming the boxes. Fix it by placing one box against the other.
+- Targets must be boxes in the same container. Arrows are still routed for you, round the boxes.
+
+Do not reach for this by default. For most levels the automatic arrangement is good and costs nothing to maintain; state the arrangement where the picture has a shape people expect.
 
 ## How to structure a diagram
 
@@ -93,6 +117,7 @@ edges:
 - **File order steers screen order.** Within a level, nodes are placed roughly in the order written (arrows can override it), and an arrow that points back to an earlier node is treated as a loop-back. Write a flow's steps in the order they happen, and write a decision's branches right after the decision.
 - **A flow that touches several systems lives in one home box.** Put the flow inside the component that runs it. Where it touches another system, add a small box with `ref: <that system's id>` as a step in the flow, and one arrow from that box to the real system so the dependency shows at the levels above.
 - **Use `group` for boundaries, nesting for depth.** Accounts, VPCs and trust zones are groups (always visible). Things with internals worth hiding (a cluster, a namespace, a service, a feature) are plain nested boxes.
+- **Heed the legibility warning.** `check` says when a level's titles will be too small to read on an ordinary screen and names the boxes. Shorten those labels or move boxes into a nested box.
 - **Keep text short.** Labels of one to three words, `sub` a few words, `detail` lines about 30 characters. Long prose belongs in a `note`.
 - **Arrow labels are optional.** Label the protocol or the reason, not the obvious ("calls").
 

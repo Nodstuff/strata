@@ -10,7 +10,7 @@ import { join, resolve, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { load } from '../src/model.js';
 import { layout } from '../src/layout.js';
-import { html, outline } from '../src/build.js';
+import { html, outline, legibility } from '../src/build.js';
 
 const [cmd, file, ...rest] = process.argv.slice(2);
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
@@ -20,7 +20,7 @@ if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 let model;
 try { model = await layout(load(await readFile(file, 'utf8'))); }
 catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem(s)' : 'error'}\n${e.message}`); process.exit(1); }
-for (const w of model.warnings) console.error('warning: ' + w);
+for (const w of [...model.warnings, ...legibility(model)]) console.error('warning: ' + w);
 const stem = basename(file).replace(/\.ya?ml$/, '');
 
 if (cmd === 'check') {
