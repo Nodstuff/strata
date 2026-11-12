@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+// strata check <file.yaml>                      validate, lay out, print the tree
+// strata build <file.yaml> [-o out.html]        one self-contained HTML page
+// strata shot  <file.yaml> [--at id] [--hide state] [--size 1600x1000] [-o out.png]   a picture of one level
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve, basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { load } from '../src/model.js';
+import { layout } from '../src/layout.js';
+import { html, outline } from '../src/build.js';
+
+const [cmd, file, ...rest] = process.argv.slice(2);
+const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
+const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [-o out] [--at id] [--hide state] [--size WxH]'); process.exit(2); };
+if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
+
+let model;
+try { model = await layout(load(await readFile(file, 'utf8'))); }
+catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem(s)' : 'error'}\n${e.message}`); process.exit(1); }
+for (const w of model.warnings) console.error('warning: ' + w);
+const stem = basename(file).replace(/\.ya?ml$/, '');
+
+if (cmd === 'check') {
+  const o = outline(model);
+  console.log(o.text);
+  console.log(`\nok · ${o.boxes} boxes · ${o.arrows} arrows · ${o.depth} levels deep`);
+} else if (cmd === 'build') {
+  const out = opt('-o') || stem + '.html';
+  await writeFile(out, await html(model));
+  console.log(`ok · ${resolve(out)}`);
+} else {
+  const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(p => p && existsSync(p));
+  if (!chrome) { console.error('shot needs Chrome or Chromium; set CHROME to its path'); process.exit(1); }
+  const at = opt('--at'), hide = opt('--hide'), size = (opt('--size') || '1600x1000').replace('x', ',');
+  if (at && !JSON.stringify(model.root).includes(`"id":"${at}"`)) { console.error(`--at ${at}: no node has that id`); process.exit(1); }
+  const out = resolve(opt('-o') || `${stem}${at ? '-' + at : ''}.png`);
+  const dir = await mkdtemp(join(tmpdir(), 'strata-'));
+  const page = join(dir, 'page.html');
+  await writeFile(page, await html(model));
+  const hash = new URLSearchParams({ ...(at ? { at } : {}), ...(hide ? { hide } : {}) }).toString();
+  await new Promise((ok, fail) => execFile(chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1', `--window-size=${size}`, '--virtual-time-budget=2000', `--screenshot=${out}`, pathToFileURL(page).href + (hash ? '#' + hash : '')],
+    { timeout: 60000 }, err => (err ? fail(err) : ok())));
+  await rm(dir, { recursive: true, force: true });
+  console.log(`ok · ${out}`);
+}

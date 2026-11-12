@@ -1,0 +1,142 @@
+# A made-up shop platform, three levels deep: cluster, service, feature.
+title: Shop platform
+subtitle: EKS cluster
+nodes:
+  - id: web
+    label: Web & mobile
+    sub: clients
+    kind: external
+  - id: gw
+    label: API gateway
+    sub: ingress · auth
+    kind: service
+  - id: cat
+    label: Catalog
+    sub: service
+    kind: service
+    nodes:
+      - id: c_api
+        label: Catalog API
+      - id: c_search
+        label: Search
+      - id: c_stock
+        label: Stock
+        sub: reservations
+      - id: c_products
+        label: Products
+  - id: sidx
+    label: Search index
+    sub: OpenSearch
+    kind: store
+    shape: cylinder
+  - id: kafka
+    label: Event bus
+    sub: Kafka
+    kind: purple
+  - id: ord
+    label: Orders
+    sub: service
+    kind: service
+    nodes:
+      - id: o_api
+        label: HTTP API
+        sub: handlers
+      - id: ck
+        label: Checkout
+        sub: feature
+        kind: orange
+        nodes:
+          - id: ck_validate
+            label: Validate cart
+          - id: ck_reserve
+            label: Reserve stock
+          - id: ck_price
+            label: Price & tax
+          - id: ck_auth
+            label: Authorise payment
+          - id: ck_create
+            label: Create order
+          - id: ck_comp
+            label: Compensate
+            sub: release · void
+      - id: o_outbox
+        label: Outbox publisher
+      - id: o_repo
+        label: Repository
+      - id: o_pricing
+        label: Pricing rules
+        sub: tax · discounts
+  - id: pay
+    label: Payments
+    sub: service
+    kind: service
+    nodes:
+      - id: p_api
+        label: Payments API
+      - id: au
+        label: Authorise
+        sub: feature
+        kind: orange
+        nodes:
+          - id: au_idem
+            label: Idempotency key
+          - id: au_risk
+            label: Risk score
+          - id: au_call
+            label: Call processor
+          - id: au_record
+            label: Record hold
+      - id: p_ledger
+        label: Ledger
+      - id: p_hooks
+        label: Webhook receiver
+  - id: psp
+    label: Card processor
+    sub: external
+    kind: external
+  - id: notify
+    label: Notifications
+    sub: service
+    kind: service
+  - id: odb
+    label: Orders DB
+    sub: Postgres
+    kind: store
+    shape: cylinder
+  - id: pdb
+    label: Payments DB
+    sub: Postgres
+    kind: store
+    shape: cylinder
+edges:
+  - [ web, gw, HTTPS ]
+  - [ gw, o_api, REST ]
+  - [ gw, c_api, REST ]
+  - [ o_api, ck_validate, POST /checkout ]
+  - [ ck_validate, ck_reserve ]
+  - [ ck_reserve, ck_price ]
+  - [ ck_price, ck_auth ]
+  - [ ck_auth, ck_create, authorised ]
+  - [ ck_auth, ck_comp, declined ]
+  - [ ck_reserve, c_stock, reserve ]
+  - [ ck_price, o_pricing, rules ]
+  - [ ck_auth, p_api, authorise ]
+  - [ ck_comp, p_api, void ]
+  - [ ck_create, o_repo, order + outbox row ]
+  - [ o_outbox, o_repo, poll ]
+  - [ o_outbox, kafka, OrderPlaced ]
+  - [ kafka, notify, consume ]
+  - [ o_repo, odb, SQL ]
+  - [ p_api, au_idem, authorise() ]
+  - [ au_idem, au_risk ]
+  - [ au_risk, au_call ]
+  - [ au_call, au_record ]
+  - [ au_call, psp, charge ]
+  - [ psp, p_hooks, webhook ]
+  - [ au_record, p_ledger, hold ]
+  - [ p_hooks, p_ledger, settle ]
+  - [ p_ledger, pdb, SQL ]
+  - [ c_api, c_search ]
+  - [ c_api, c_products ]
+  - [ c_api, c_stock ]
+  - [ c_search, sidx, query ]

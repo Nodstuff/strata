@@ -1,0 +1,17 @@
+{
+  "name": "strata",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zoomable nested diagrams from one text file",
+  "type": "module",
+  "bin": {
+    "strata": "bin/strata.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "elkjs": "^0.12.1",
+    "yaml": "^2.9.1"
+  }
+}
