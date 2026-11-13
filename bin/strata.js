@@ -34,13 +34,13 @@ if (cmd === 'check') {
 } else {
   const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(p => p && existsSync(p));
   if (!chrome) { console.error('shot needs Chrome or Chromium; set CHROME to its path'); process.exit(1); }
-  const at = opt('--at'), hide = opt('--hide'), show = opt('--show'), size = (opt('--size') || '1600x1000').replace('x', ',');
+  const at = opt('--at'), hide = opt('--hide'), show = opt('--show'), hot = opt('--hot'), size = (opt('--size') || '1600x1000').replace('x', ',');
   if (at && !JSON.stringify(model.root).includes(`"id":"${at}"`)) { console.error(`--at ${at}: no node has that id`); process.exit(1); }
   const out = resolve(opt('-o') || `${stem}${at ? '-' + at : ''}.png`);
   const dir = await mkdtemp(join(tmpdir(), 'strata-'));
   const page = join(dir, 'page.html');
   await writeFile(page, await html(model));
-  const hash = new URLSearchParams({ ...(at ? { at } : {}), ...(hide ? { hide } : {}), ...(show ? { show } : {}) }).toString();
+  const hash = new URLSearchParams({ ...(at ? { at } : {}), ...(hide ? { hide } : {}), ...(show ? { show } : {}), ...(hot ? { hot } : {}) }).toString();
   await new Promise((ok, fail) => execFile(chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1', `--window-size=${size}`, '--virtual-time-budget=2000', `--screenshot=${out}`, pathToFileURL(page).href + (hash ? '#' + hash : '')],
     { timeout: 60000 }, err => (err ? fail(err) : ok())));
   await rm(dir, { recursive: true, force: true });

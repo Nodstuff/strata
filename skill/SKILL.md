@@ -16,7 +16,7 @@ The tool lives in `~/personal/strata`. Run it as `node ~/personal/strata/bin/str
 3. `strata shot <name>.yaml -o top.png`, then `strata shot <name>.yaml --at <id> -o <id>.png` for each container that matters. **Look at the pictures** (Read the PNG). Fix what reads badly, usually by reordering nodes or nesting more.
 4. `strata build <name>.yaml -o <name>.html` and give the user the path. The HTML is self-contained and can be sent to anyone.
 
-`shot` takes `--size 1600x1000` (the default) and always renders the dark theme. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
+`shot` takes `--size 1600x1000` (the default) and always renders the dark theme. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags; `--hot <id>` lights one box's arrows and dims the rest, which is how a reader untangles a busy level by pointing at a box. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
 
 ## The file
 

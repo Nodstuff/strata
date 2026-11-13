@@ -185,7 +185,7 @@ function crossPath(a, b, gkey) {
   return pts.length > 1 ? { pts, L, l: route.l } : null;
 }
 
-let pills = [], focus = root, lastFocus = null;
+let pills = [], focus = root, lastFocus = null, hot = null; // hot: the box being pointed at
 function draw() {
   raf = 0;
   if (anim) anim();
@@ -239,6 +239,16 @@ function draw() {
     }
   });
   pills = []; let arrows = 0; const midLabels = [], stubs = [];
+  // The level being read is the deepest open container that fills most of the screen. Arrows that
+  // leave it are drawn quietly. Pointing at a box (or at an edge label) lights its arrows and dims the rest.
+  let here = root;
+  for (let go = true; go;) {
+    go = false;
+    for (const c of here.children || []) if (c.children && c.vis > 0 && c.t >= 0.5 && c.sx < vw / 2 && c.sy < vh / 2 && c.sx + c.sw > vw / 2 && c.sy + c.sh > vh / 2 && (c.group || Math.max(c.sw / vw, c.sh / vh) >= 0.6)) { here = c; go = true; break; }
+  }
+  while (here.group && here !== root) here = here.parent;
+  const inHere = x => x.path.includes(here), touches = x => x === hot || x.path.includes(hot);
+  if (hot && !(hot.vis > 0)) hot = null;
   for (const g of agg.values()) {
     const a = g.a, b = g.b, es = [...g.es].map(i => E[i]);
     if (!a.on && !b.on) continue;
@@ -251,12 +261,14 @@ function draw() {
     const worst = es.filter(e => STY[e.style] === st).length;
     const text = es.length === 1 ? es[0].label : (labels.size === 1 && es.every(e => e.label) ? `${[...labels][0]} ×${es.length}` : `${es.length} links`)
       + (st.label && st.c ? (worst === es.length ? ` · all ${st.label}` : ` · ${worst} ${st.label}`) : '');
-    ctx.globalAlpha = g.alpha; ctx.lineWidth = st.w; ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
+    const lit = hot && (touches(a) || touches(b)), away = !(inHere(a) && inHere(b));
+    const la = g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
+    ctx.globalAlpha = g.alpha * (hot ? (lit ? 1 : 0.1) : away ? 0.34 : 1); ctx.lineWidth = st.w + (lit ? 0.9 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
     if (a === b) { // self loop, drawn over the top edge
       const x0 = a.sx + a.sw * 0.5, x1 = a.sx + a.sw * 0.82, y = a.sy, hgt = clamp(a.sh * 0.3, 8, 22);
       ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0, y - hgt); ctx.lineTo(x1, y - hgt); ctx.lineTo(x1, y - 2); ctx.stroke();
       ctx.setLineDash([]); arrowHead(x1, y - 1, 0, 1, 7); arrows++;
-      midLabels.push({ x: (x0 + x1) / 2, y: y - hgt, len: 1e9, text, alpha: g.alpha, col: st.c });
+      midLabels.push({ x: (x0 + x1) / 2, y: y - hgt, len: 1e9, text, alpha: la, lit, col: st.c });
       continue;
     }
     const cp = crossPath(a, b, g.key);
@@ -284,12 +296,14 @@ function draw() {
       if (cut) { // arrows to the same off-screen box that leave the view together share one label
         const node = a.on ? b : a;
         const near = d => q => q.out === a.on && Math.hypot(q.at[0] - cut[0], q.at[1] - cut[1]) < d, twin = stubs.find(q => q.node !== node && near(8)(q));
+        const same = stubs.find(q => q.node === node && near(90)(q)), share = twin || same;
+        if (share && lit) { share.alpha = la; share.lit = true; } // a label shared with a lit arrow is lit
         if (twin) twin.more = (twin.more || 0) + 1; // a second box at the end of the very same line: one label, counted
-        else if (!stubs.some(q => q.node === node && near(90)(q))) stubs.push({ at: cut, node, other: a.on ? a : b, out: a.on, alpha: g.alpha, col: st.c });
+        else if (!same) stubs.push({ at: cut, node, other: a.on ? a : b, out: a.on, alpha: la, lit, col: st.c });
       } else if (text) {
         const pu = cp.L.sw / cp.L.iw, l = cp.l && [cp.L.sx + cp.l[0] * pu, cp.L.sy + cp.l[1] * pu];
-        if (l && l[0] > 20 && l[0] < vw - 20 && l[1] > 56 && l[1] < vh - 50) { if (pu >= 0.66) midLabels.push({ x: l[0], y: l[1], len: 1e9, text, alpha: g.alpha, col: st.c, f: Math.min(10.5, 10.5 * pu) }); } // the spot the layout kept free for it
-        else { let best = 0, bi = 0; for (let i = 0; i < n - 1; i++) if (seg(i) > best) { best = seg(i); bi = i; } midLabels.push({ x: (pts[bi][0] + pts[bi + 1][0]) / 2, y: (pts[bi][1] + pts[bi + 1][1]) / 2, len: best, text, alpha: g.alpha, col: st.c }); }
+        if (l && l[0] > 20 && l[0] < vw - 20 && l[1] > 56 && l[1] < vh - 50) { if (pu >= 0.66) midLabels.push({ x: l[0], y: l[1], len: 1e9, text, alpha: la, lit, col: st.c, f: Math.min(10.5, 10.5 * pu) }); } // the spot the layout kept free for it
+        else { let best = 0, bi = 0; for (let i = 0; i < n - 1; i++) if (seg(i) > best) { best = seg(i); bi = i; } midLabels.push({ x: (pts[bi][0] + pts[bi + 1][0]) / 2, y: (pts[bi][1] + pts[bi + 1][1]) / 2, len: best, text, alpha: la, lit, col: st.c }); }
       }
       continue;
     }
@@ -308,14 +322,17 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]); ctx.stroke(); ctx.setLineDash([]);
     if (b.on && !st.noHead) arrowHead(q1[0], q1[1], dx / L, dy / L, 7.5);
     if (g.alpha < 0.6) continue; // mid-fade arrows stay as faint lines: no label, no stub
-    if (stub) stubs.push({ ...stub, alpha: g.alpha, col: st.c });
-    else if (text) midLabels.push({ x: (q0[0] + q1[0]) / 2, y: (q0[1] + q1[1]) / 2, len: Math.hypot(q1[0] - q0[0], q1[1] - q0[1]), text, alpha: g.alpha, col: st.c });
+    if (stub) stubs.push({ ...stub, alpha: la, lit, col: st.c });
+    else if (text) midLabels.push({ x: (q0[0] + q1[0]) / 2, y: (q0[1] + q1[1]) / 2, len: Math.hypot(q1[0] - q0[0], q1[1] - q0[1]), text, alpha: la, lit, col: st.c });
   }
   ctx.setLineDash([]);
   ctx.font = `600 10.5px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const shown = []; midLabels.sort((p, q) => (q.lit ? 1 : 0) - (p.lit ? 1 : 0));
   for (const m of midLabels) {
     const f = m.f || 10.5; ctx.font = `600 ${f}px ${FONT}`;
-    const w = ctx.measureText(m.text).width + f, h = f * 1.5; if (m.len < w + 12) continue;
+    const w = ctx.measureText(m.text).width + f, h = f * 1.5; if ((m.len < w + 12 && !m.lit) || m.alpha < 0.3) continue;
+    if (!m.lit && shown.some(q => Math.abs(q.x - m.x) < (q.w + w) / 2 + 3 && Math.abs(q.y - m.y) < (q.h + h) / 2 + 2)) continue; // never one label on another
+    shown.push({ x: m.x, y: m.y, w, h });
     ctx.globalAlpha = m.alpha; ctx.fillStyle = C.bg; rr(m.x - w / 2, m.y - h / 2, w, h, 5); ctx.fill();
     ctx.fillStyle = m.col ? rgba(m.col, 1) : C.muted; ctx.fillText(m.text, m.x, m.y + 0.5);
   }
@@ -373,7 +390,7 @@ function draw() {
     const dir = y > vh / 2 ? -1 : 1;
     for (let i = 0; i < 10 && pills.some(p => Math.abs(p.x - x) < (p.w + w) / 2 + 4 && Math.abs(p.y - y) < h + 2); i++) y += dir * (h + 3);
     pills.push({ x, y, w, h, node: s.node });
-    ctx.globalAlpha = s.alpha;
+    ctx.globalAlpha = s.alpha * (hot || s.lit ? 1 : 0.8);
     rr(x - w / 2, y - h / 2, w, h, 10); ctx.fillStyle = C.pill; ctx.fill();
     ctx.strokeStyle = rgba(s.col || C.line, 0.9); ctx.lineWidth = 1.2; ctx.stroke();
     ctx.fillStyle = C.ink; ctx.fillText(text, x, y + 0.5);
@@ -489,8 +506,15 @@ cv.addEventListener('pointerdown', e => {
   if (ptrs.size === 1) moved = 0;
   anim = null; cv.classList.add('drag');
 });
+const point = (x, y) => { // what is under the pointer: an edge label's box, or a closed box
+  const p = pills.find(p => Math.abs(x - p.x) <= p.w / 2 && Math.abs(y - p.y) <= p.h / 2), nd = p ? p.node : hit(x, y);
+  const h = p ? nd : nd !== root && nd.t < 0.5 && !nd.note ? nd : null;
+  if (h !== hot) { hot = h; cv.style.cursor = p || (h && (h.children || h.ref)) ? 'pointer' : ''; req(); }
+};
+cv.addEventListener('pointerleave', () => { if (hot && !pinned) { hot = null; req(); } });
+let pinned = false;
 cv.addEventListener('pointermove', e => {
-  const p = ptrs.get(e.pointerId); if (!p) return;
+  const p = ptrs.get(e.pointerId); if (!p) { if (!pinned && e.pointerType !== 'touch') point(e.clientX, e.clientY); return; }
   const nx = e.clientX, ny = e.clientY;
   if (ptrs.size === 1) { tx += nx - p[0]; ty += ny - p[1]; moved += Math.abs(nx - p[0]) + Math.abs(ny - p[1]); req(); }
   else if (ptrs.size === 2) {
@@ -530,6 +554,7 @@ function fromHash(instant) {
   const q = new URLSearchParams(location.hash.slice(1));
   for (const s of (q.get('hide') || '').split(',')) if (s) setState(s, false);
   for (const s of (q.get('show') || '').split(',')) if (s) setState(s, true);
+  hot = byId[q.get('hot')] || null; pinned = !!hot; // #hot=<id> opens with that box's arrows lit
   const at = byId[q.get('at')]; if (at) fit(at.children ? at : at.parent, instant);
 }
 fromHash(true); addEventListener('hashchange', () => fromHash(false));
