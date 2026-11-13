@@ -1,6 +1,8 @@
 # A made-up shop platform, three levels deep: cluster, service, feature.
 title: Shop platform
 subtitle: EKS cluster
+tags:                                # switched on and off in the viewer; show: false starts hidden
+  proposed: {label: Proposed, color: yellow, show: false}
 nodes:
   - id: web
     label: Web & mobile
@@ -24,6 +26,12 @@ nodes:
         sub: reservations
       - id: c_products
         label: Products
+  - id: cache
+    label: Read cache
+    sub: Redis
+    kind: store
+    shape: cylinder
+    tag: proposed
   - id: sidx
     label: Search index
     sub: OpenSearch
@@ -140,3 +148,5 @@ edges:
   - [ c_api, c_products ]
   - [ c_api, c_stock ]
   - [ c_search, sidx, query ]
+  - [c_api, cache, read-through]
+  - [gw, kafka, audit events, flow, proposed]   # an arrow can carry a tag too

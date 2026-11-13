@@ -10,13 +10,14 @@ const all = [], byId = {};
 (function walk(nd, parent) {
   nd.parent = parent; nd.path = parent ? parent.path.concat(nd) : [nd];
   nd.st = nd.state || (parent && parent.st) || null;
+  nd.ut = nd.until || (parent && parent.ut) || null; // the tag that retires this box, its own or a container's
   nd.lines = nd.label.split('\n'); nd.title = nd.lines.join(' ');
   all.push(nd); byId[nd.id] = nd;
   if (!nd.children) return;
   const u = nd.aw / nd.iw; // one inner unit of this container, in root units
   for (const c of nd.children) { c.ax = nd.ax + c.x * u; c.ay = nd.ay + c.y * u; c.aw = c.w * u; c.ah = c.h * u; walk(c, nd); }
 })(Object.assign(root, { ax: 0, ay: 0, aw: root.iw, ah: root.ih }), null);
-const E = D.edges.map(e => ({ a: byId[e.a], b: byId[e.b], label: e.label, style: e.style }));
+const E = D.edges.map(e => ({ a: byId[e.a], b: byId[e.b], label: e.label, style: e.style, tag: e.tag || null, until: e.until || null }));
 
 // ---------- theme ----------
 const FONT = 'system-ui,-apple-system,"Segoe UI",sans-serif';
@@ -34,14 +35,20 @@ theme(); mq.addEventListener('change', () => { theme(); req(); });
 // ---------- camera ----------
 const cv = $('cv'), ctx = cv.getContext('2d');
 let vw = 0, vh = 0, dpr = 1, k = 1, tx = 0, ty = 0, kfit = 1, raf = 0, anim = null;
-const off = new Set(); // states switched off
+const off = new Set(); // tags switched off
+let taAt = 0;
+const ta = {}, lit = {}; // how far each tag has faded in (0 to 1), and when it was last switched on
+for (const n of Object.keys(STATES)) { ta[n] = 1; lit[n] = -1e9; }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 function req() { if (!raf) raf = requestAnimationFrame(draw); }
+const gutter = () => clamp(vw * 0.1, 70, 170);
 function target(nd) {
   const top = 56, bot = 44;
-  const kk = Math.min(vw * 0.92 / nd.aw, (vh - top - bot) * 0.92 / nd.ah);
+  // a container keeps a gutter free on every side: the labels of arrows that leave it sit there, clear of its boxes
+  const gx = nd === root ? vw * 0.04 : gutter(), gy = nd === root ? (vh - top - bot) * 0.04 : 34;
+  const kk = Math.min((vw - 2 * gx) / nd.aw, (vh - top - bot - 2 * gy) / nd.ah);
   return { k: kk, tx: vw / 2 - (nd.ax + nd.aw / 2) * kk, ty: top + (vh - top - bot) / 2 - (nd.ay + nd.ah / 2) * kk };
 }
 function fit(nd, instant) {
@@ -183,12 +190,18 @@ function draw() {
   raf = 0;
   if (anim) anim();
   const T = performance.now(), T0 = 0.34, T1 = 0.46;
+  for (const n in ta) { // a tag fades in and out, and glows for a moment when it comes on
+    const want = off.has(n) ? 0 : 1, step = Math.min(1, (T - (taAt || T)) / 220);
+    if (ta[n] !== want) { ta[n] = Math.abs(want - ta[n]) < 0.02 ? want : ta[n] + (want - ta[n]) * Math.max(0.12, step); req(); }
+    else if (T - lit[n] < 1600) req();
+  }
+  taAt = T;
 
   // level of detail: a container opens by how much of the viewport it covers, nothing else
   for (const nd of all) {
     nd.sx = nd.ax * k + tx; nd.sy = nd.ay * k + ty; nd.sw = nd.aw * k; nd.sh = nd.ah * k;
     nd.t = nd.children ? (nd === root || nd.group ? 1 : smooth((Math.max(nd.sw / vw, nd.sh / vh) - T0) / (T1 - T0))) : 0;
-    nd.vis = nd.st && off.has(nd.st) ? 0 : nd.parent ? Math.min(nd.parent.vis, nd.parent.t) : 1;
+    nd.vis = (nd.parent ? Math.min(nd.parent.vis, nd.parent.t) : 1) * (nd.state ? ta[nd.state] : 1) * (nd.until ? 1 - ta[nd.until] : 1);
     nd.on = nd.vis > 0 && nd.sx < vw && nd.sy < vh && nd.sx + nd.sw > 0 && nd.sy + nd.sh > 0;
   }
 
@@ -208,7 +221,8 @@ function draw() {
   // pass 2: arrows, aggregated to whatever is visible
   const agg = new Map();
   E.forEach((e, i) => {
-    if ((e.a.st && off.has(e.a.st)) || (e.b.st && off.has(e.b.st))) return;
+    if ((e.a.st && ta[e.a.st] < 0.5) || (e.b.st && ta[e.b.st] < 0.5) || (e.tag && ta[e.tag] < 0.5)) return;
+    if ((e.until && ta[e.until] >= 0.5) || (e.a.ut && ta[e.a.ut] >= 0.5) || (e.b.ut && ta[e.b.ut] >= 0.5)) return;
     if (e.a === e.b) { if (e.a.vis > 0.6 && e.a.on) agg.set('self' + i, { a: e.a, b: e.a, alpha: e.a.vis, es: new Set([i]) }); return; }
     for (const [na, wa] of reps(e.a)) for (const [nb, wb] of reps(e.b)) {
       if (na === nb || na.path.includes(nb) || nb.path.includes(na)) continue;
@@ -229,7 +243,10 @@ function draw() {
     const a = g.a, b = g.b, es = [...g.es].map(i => E[i]);
     if (!a.on && !b.on) continue;
     // a merged arrow takes the worst style among the arrows it stands for, and says so
-    const st = es.reduce((w, e) => STY[e.style].rank > w.rank ? STY[e.style] : w, { rank: -1, w: 1.3 });
+    let st = es.reduce((w, e) => STY[e.style].rank > w.rank ? STY[e.style] : w, { rank: -1, w: 1.3 });
+    // an arrow that exists only because of a tag is drawn in the tag's colour, so a proposed link stands out
+    const tg = es.every(e => e.tag) ? es[0].tag : null;
+    if (tg) st = { ...st, c: STATES[tg].c, dash: st.dash || [7, 5], w: Math.max(st.w, 1.7) };
     const col = st.c || C.line, labels = new Set(es.map(e => e.label).filter(Boolean));
     const worst = es.filter(e => STY[e.style] === st).length;
     const text = es.length === 1 ? es[0].label : (labels.size === 1 && es.every(e => e.label) ? `${[...labels][0]} ×${es.length}` : `${es.length} links`)
@@ -319,9 +336,10 @@ function draw() {
         ctx.moveTo(cx, y1 - r * 1.6); ctx.lineTo(cx - r * 1.3, y1); ctx.moveTo(cx, y1 - r * 1.6); ctx.lineTo(cx + r * 1.3, y1); ctx.stroke();
       } else {
         shapePath(nd);
-        ctx.fillStyle = C.box; ctx.fill(); ctx.fillStyle = rgba(c, nd.note ? C.tint * 1.5 : C.tint); ctx.fill();
+        ctx.fillStyle = C.box; ctx.fill(); ctx.fillStyle = rgba(c, nd.note ? C.tint * 1.5 : nd.st ? C.tint * 1.7 : C.tint); ctx.fill();
         if (nd.st && !nd.note) ctx.setLineDash([7, 4]); else if ((KIND[nd.kind] || {}).dashed) ctx.setLineDash([5, 4]); else if (nd.ref) ctx.setLineDash([2, 3]);
-        ctx.stroke(); ctx.setLineDash([]);
+        if (nd.st) { const fresh = Math.max(0, 1 - (T - lit[nd.st]) / 1600); ctx.shadowColor = rgba(c, 0.5 + 0.5 * fresh); ctx.shadowBlur = 10 + 26 * fresh; ctx.lineWidth = 1.5 + fresh; }
+        ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
         if (nd.shape === 'cylinder') { const ry = Math.min(nd.sh * 0.13, 12); ctx.beginPath(); ctx.ellipse(nd.sx + nd.sw / 2, nd.sy + ry, nd.sw / 2, ry, 0, 0, Math.PI); ctx.stroke(); }
       }
     }
@@ -333,7 +351,11 @@ function draw() {
   // Labels that would overlap along the top or bottom edge move apart sideways, each staying over
   // its own line; only if there is no room for that do they stack.
   const tags = stubs.map(s => {
-    const text = (s.out ? '→ ' : '← ') + relName(s.node, s.other) + (s.more ? ` +${s.more}` : ''), w = ctx.measureText(text).width + 16, h = 20;
+    // a label on the left or right edge is kept short enough for the gutter: the nearest names go first
+    const side = s.at[0] < 16 || s.at[0] > vw - 16, parts = relName(s.node, s.other).split(' › '), h = 20;
+    const say = () => (s.out ? '→ ' : '← ') + parts.join(' › ') + (s.more ? ` +${s.more}` : '');
+    let text = say(), w = ctx.measureText(text).width + 16;
+    while (side && parts.length > 1 && w > gutter() + 60) { parts.shift(); text = say(); w = ctx.measureText(text).width + 16; }
     return { s, text, w, h, x: clamp(s.at[0], 14 + w / 2, vw - 14 - w / 2), y: clamp(s.at[1], 52 + h / 2, vh - 46 - h / 2) };
   });
   for (const edge of [52 + 10, vh - 46 - 10]) {
@@ -435,13 +457,14 @@ for (const s of Object.values(STY)) if (s.label && s.c) {
 const toggles = {};
 function setState(name, shown) {
   if (!STATES[name]) return;
-  if (shown) off.delete(name); else off.add(name);
-  toggles[name].textContent = `${STATES[name].label}: ${shown ? 'shown' : 'hidden'}`; req();
+  if (shown) { if (off.has(name)) lit[name] = performance.now(); off.delete(name); } else off.add(name);
+  const b = toggles[name]; b.classList.toggle('off', !shown); b.setAttribute('aria-pressed', shown); b.title = `${STATES[name].label}: ${shown ? 'shown, click to hide' : 'hidden, click to show'} (n next, p back)`; req();
 }
 for (const [name, s] of Object.entries(STATES)) {
   const b = toggles[name] = document.createElement('button');
-  b.className = 'toggle'; b.style.borderColor = rgba(s.c, 1); b.onclick = () => setState(name, off.has(name));
-  legend.appendChild(b); setState(name, true);
+  b.className = 'toggle'; b.style.setProperty('--tc', rgba(s.c, 1)); b.style.borderColor = rgba(s.c, 0.8); b.style.background = rgba(s.c, 0.14);
+  b.append(document.createElement('b'), s.label); b.onclick = () => setState(name, off.has(name));
+  legend.appendChild(b); setState(name, s.shown !== false); if (s.shown === false) ta[name] = 0;
 }
 if (!legend.children.length) legend.remove();
 
@@ -491,6 +514,10 @@ const up = e => {
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 cv.addEventListener('dblclick', e => { const nd = hit(e.clientX, e.clientY); if (!(nd.ref && !nd.children)) jump(nd); });
 addEventListener('keydown', e => {
+  // n and p step through the tags in the order the file declares them: n switches the next one on, p the last one off
+  const names = Object.keys(STATES);
+  if (e.key === 'n' || e.key === ']') { const x = names.find(s => off.has(s)); if (x) setState(x, true); return; }
+  if (e.key === 'p' || e.key === '[') { const x = names.filter(s => !off.has(s)).pop(); if (x) setState(x, false); return; }
   if (e.key === 'Escape') fit(focus.parent || root);
   else if (e.key === '0' || e.key === 'f') fit(root);
   else if (e.key === '+' || e.key === '=') zoomAt(vw / 2, vh / 2, 1.35);
@@ -502,6 +529,7 @@ resize();
 function fromHash(instant) {
   const q = new URLSearchParams(location.hash.slice(1));
   for (const s of (q.get('hide') || '').split(',')) if (s) setState(s, false);
+  for (const s of (q.get('show') || '').split(',')) if (s) setState(s, true);
   const at = byId[q.get('at')]; if (at) fit(at.children ? at : at.parent, instant);
 }
 fromHash(true); addEventListener('hashchange', () => fromHash(false));

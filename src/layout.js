@@ -18,9 +18,10 @@ import { walk } from './model.js';
 const elk = new ELK();
 const CLOSED_W = 230, CLOSED_H = 180;   // the box a closed container is drawn as
 const FIT = 0.3;                        // a closed container must stay under this share of its parent, so it is still closed when the parent fills the screen
-const SIDE = 30, BOTTOM = 30;
+const SIDE = 38, BOTTOM = 38;
 const CLEAR = 13, LANE = 9;             // how far a routed line stays from a box, and from the next line in the same channel
-const GAP = { none: 0, tight: 20, normal: 48, wide: 96 };
+const GAP = { none: 0, tight: 24, normal: 58, wide: 112 };
+const WIDE = 1.55, STRETCH = [1.5, 2.1, 2.8, 3.6]; // a level narrower than a screen has its gaps widened sideways until it is about screen-shaped
 const r1 = v => Math.round(v * 10) / 10;
 
 function leafSize(nd) {
@@ -52,7 +53,10 @@ function busyness(res, unit) {
     const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
     if (o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0) crossings++;
   }
-  return len / unit + 0.7 * bends + 5 * crossings + 7 * Math.abs(Math.log(res.width / res.height / 1.7));
+  // how small the boxes come out once the picture is fitted to a screen: the side of the screen it needs,
+  // weighed against the rest in proportion to how many arrows there are to argue the other way
+  const side = Math.max(res.width / 1.7, res.height), n = (res.edges || []).length;
+  return len / unit + 0.7 * bends + 5 * crossings + (8 + 1.3 * n) * Math.log(side / unit);
 }
 
 // ---------- the router: a right-angle path between two sets of points, round every box ----------
@@ -159,7 +163,7 @@ const occupy = (occ, pts, tag) => { for (let i = 0; i < pts.length - 1; i++) occ
 // ---------- stated placement: the file says where each box sits; this works out only the distances ----------
 // A gap is a minimum, never an exact distance, and everything ends up as close together as the
 // statements allow. Anything left ambiguous is an error that names the box, never a guess.
-function placeStated(nd) {
+function placeStated(nd, fx = 1, fy = 1) {
   const kids = nd.children, idx = new Map(kids.map((c, i) => [c.id, i])), n = kids.length, where = nd.id === '__root' ? 'at the top level' : `in "${nd.id}"`;
   const free = kids.filter(c => !c.place);
   if (free.length !== 1) throw new Error(`${where}, ${free.length} boxes have no place (${free.map(c => c.id).join(', ') || 'none'}): once any box in a container is placed, all but one must be, and that one is what the rest are placed against`);
@@ -175,7 +179,7 @@ function placeStated(nd) {
     for (const p of lv) rowOf[find(rowOf, i)] = find(rowOf, idx.get(p.target));
     for (const p of [...xs, ...ys]) {
       const j = idx.get(p.target), t = kids[j], horiz = p.rel === 'left' || p.rel === 'right';
-      const d = (horiz ? (c.w + t.w) / 2 : (c.h + t.h) / 2) + GAP[p.gap];
+      const d = (horiz ? (c.w + t.w) / 2 : (c.h + t.h) / 2) + GAP[p.gap] * (horiz ? fx : fy);
       const before = p.rel === 'right' || p.rel === 'below' ? j : i, after = before === j ? i : j;
       (horiz ? sepX : sepY).push({ i: before, j: after, d, own: i, text: `"${c.id}" ${p.rel === 'left' || p.rel === 'right' ? p.rel + ' of' : p.rel} "${p.target}"` });
     }
@@ -274,26 +278,48 @@ export async function layout(model) {
     const order = new Map(nd.children.map((c, i) => [c.id, i]));
     const stated = nd.children.some(c => c.place);
     let res, rerouted = [];
+    // Use the room a screen has: while the level is taller than a screen is, widen its sideways
+    // gaps; while it is a long strip, widen the gaps between its rows. Boxes keep their size.
+    const shape = r => (r.width + 2 * SIDE) / (r.height + 46 + BOTTOM);
+    const closed = nd.children.filter(c => c.children && !c.group);
+    const roomW = Math.max(0, ...closed.map(c => c.w / FIT)) - 2 * SIDE, roomH = Math.max(0, ...closed.map(c => c.h / FIT)) - 46 - BOTTOM; // room the level has anyway: a closed container must stay small beside it
+    const widen = async make => {
+      let r = await make(1, 1), fx = 1;
+      if (nd.children.length < 2) return r;
+      for (const f of STRETCH) {
+        if (r.width >= 0.92 * roomW && shape(r) >= WIDE) break;
+        const t = await make(f, 1);
+        if (t.width <= r.width + 1 || (t.width > 1.04 * roomW && shape(t) > WIDE + 0.3)) break;
+        r = t; fx = f;
+      }
+      for (const f of STRETCH) {
+        if (r.height >= 0.92 * roomH && shape(r) <= 1.9) break;
+        const t = await make(fx, f);
+        if (t.height <= r.height + 1 || (t.height > 1.04 * roomH && shape(t) < WIDE - 0.1)) break;
+        r = t;
+      }
+      return r;
+    };
 
     if (stated) {
-      try { res = placeStated(nd); } catch (e) { problems.push(e.message); res = null; }
+      try { res = await widen((fx, fy) => placeStated(nd, fx, fy)); } catch (e) { problems.push(e.message); res = null; }
     }
     if (!res) {
       const elkEdges = wanted.map(w => ({ id: w.id, sources: [w.a.id], targets: [w.b.id], labels: w.labels }));
       // a note that is about a box sits next to it: an unseen arrow ties the two together
       for (const c of nd.children) if (c.about && order.has(c.about)) elkEdges.push({ id: 'about:' + c.id, sources: [c.about], targets: [c.id], labels: [] });
-      const once = (dir, ord, bare, wrap) => elk.layout({
+      const once = (dir, ord, bare, wrap, fx = 1, fy = 1) => elk.layout({
         id: nd.id,
         layoutOptions: {
           'elk.algorithm': 'layered',
           'elk.direction': dir,
           'elk.edgeRouting': 'ORTHOGONAL',
-          'elk.layered.spacing.nodeNodeBetweenLayers': '56',
-          'elk.spacing.nodeNode': '38',
-          'elk.spacing.edgeNode': '22',
-          'elk.spacing.edgeEdge': '14',
-          'elk.layered.spacing.edgeNodeBetweenLayers': '22',
-          'elk.layered.spacing.edgeEdgeBetweenLayers': '14',
+          'elk.layered.spacing.nodeNodeBetweenLayers': String(Math.round(64 * (dir === 'DOWN' ? fy : fx))),
+          'elk.spacing.nodeNode': String(Math.round(44 * (dir === 'DOWN' ? fx : fy))),
+          'elk.spacing.edgeNode': '24',
+          'elk.spacing.edgeEdge': '16',
+          'elk.layered.spacing.edgeNodeBetweenLayers': '24',
+          'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
           'elk.layered.considerModelOrder.strategy': ord,               // how strongly the order in the file fixes the order on screen
           'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',          // a loop-back is the arrow that points to an earlier box in the file
           'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
@@ -303,7 +329,7 @@ export async function layout(model) {
           'elk.layered.wrapping.strategy': wrap ? 'MULTI_EDGE' : 'OFF', // a long chain folds onto a second row instead of becoming a thin strip
           'elk.layered.wrapping.additionalEdgeSpacing': '24',
           'elk.separateConnectedComponents': 'true',
-          'elk.spacing.componentComponent': '46',
+          'elk.spacing.componentComponent': String(Math.round(54 * Math.max(fx, fy))),
           'elk.aspectRatio': '1.7',
           'elk.padding': '[top=0,left=0,bottom=0,right=0]',
         },
@@ -313,11 +339,11 @@ export async function layout(model) {
       // ELK can drop the route of a labelled loop-back when it wraps a chain. Retry those arrows
       // without a reserved label, then without wrapping, so every arrow keeps a route.
       const routeless = r => (r.edges || []).filter(e => !pointsOf(e)).map(e => e.id);
-      const run = async (dir, ord, wrap) => {
-        let r = await once(dir, ord, new Set(), wrap), bad = routeless(r);
-        if (bad.length) { r = await once(dir, ord, new Set(bad), wrap); bad = routeless(r); }
-        if (bad.length && wrap) r = await once(dir, ord, new Set(), false);
-        r.wrapped = wrap;
+      const run = async (dir, ord, wrap, fx = 1, fy = 1) => {
+        let r = await once(dir, ord, new Set(), wrap, fx, fy), bad = routeless(r);
+        if (bad.length) { r = await once(dir, ord, new Set(bad), wrap, fx, fy); bad = routeless(r); }
+        if (bad.length && wrap) { r = await once(dir, ord, new Set(), false, fx, fy); wrap = false; }
+        r.wrapped = wrap; r.how = [dir, ord, wrap];
         return r;
       };
       // Try the directions the file allows, each with the file's order held firmly, loosely and
@@ -334,6 +360,7 @@ export async function layout(model) {
         else if (thin > 2.6) tries.push(await run(dir, ord, true)); // borderline: let the score decide
         for (const r of tries) { const score = busyness(r, unit) + handicap; if (score < best) { best = score; res = r; } }
       }
+      { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); }
       res.edges = (res.edges || []).filter(e => !e.id.startsWith('about:'));
       // In a folded flow ELK takes loop-backs the long way round the rows. Route those again, directly.
       if (res.wrapped) rerouted = res.edges.filter(e => { const w = wanted.find(q => q.id === e.id); return w && order.get(w.a.id) > order.get(w.b.id); }).map(e => e.id);

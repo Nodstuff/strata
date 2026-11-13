@@ -16,7 +16,7 @@ The tool lives in `~/personal/strata`. Run it as `node ~/personal/strata/bin/str
 3. `strata shot <name>.yaml -o top.png`, then `strata shot <name>.yaml --at <id> -o <id>.png` for each container that matters. **Look at the pictures** (Read the PNG). Fix what reads badly, usually by reordering nodes or nesting more.
 4. `strata build <name>.yaml -o <name>.html` and give the user the path. The HTML is self-contained and can be sent to anyone.
 
-`shot` takes `--size 1600x1000` (the default) and always renders the dark theme. `--at <id>` opens the picture fitted to that container. The same works in a link: `<name>.html#at=<id>`, and `#hide=<state>` starts with a state switched off.
+`shot` takes `--size 1600x1000` (the default) and always renders the dark theme. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
 
 ## The file
 
@@ -28,8 +28,8 @@ flow: down                      # optional: down | right, for the top level
 styles:                         # optional: line styles for arrows
   mtls:  {color: green, rank: 4, label: mTLS}
   plain: {color: red, dash: dashed, rank: 9, label: plaintext}
-states:                         # optional: things the viewer can switch off
-  phase2: {label: Phase 2, color: green}
+tags:                           # optional: sets of boxes and arrows the viewer switches on and off
+  phase2: {label: Phase 2, color: green, show: false}
 
 nodes:
   - id: gw                      # ids are global and must be unique
@@ -55,7 +55,7 @@ nodes:
   - id: payments
     label: Payments
     kind: service
-    state: phase2
+    tag: phase2
 
 edges:
   - [gw, orders_api, REST, plain]        # [from, to, label, style]; label and style optional
@@ -63,6 +63,7 @@ edges:
   - [ck_validate, ck_ok]
   - [ck_ok, ck_pay, "Yes", yes]
   - {from: ck_pay, to: payments, label: authorise, style: mtls}
+  - [gw, payments, direct, plain, phase2]      # fifth item: the arrow belongs to a tag
 ```
 
 ### Node keys
@@ -76,7 +77,8 @@ edges:
 | `note` | Makes the box an annotation with wrapped body text; `label` is its heading. A note cannot contain nodes. |
 | `kind` | Colour by meaning: `service` (blue), `store` (orange), `infra` (purple), `external` (grey, dashed), `step` (default), `frame`, `note`. Any colour name also works: `blue green red orange purple yellow grey violet teal slate`. Add your own under top-level `kinds:`. |
 | `shape` | `box` (default), `diamond` (a decision), `cylinder` (a database or queue), `actor` (a person). |
-| `state` | Name from `states:` (each state takes a `label` and a `color` from the same colour names as kinds). The box and everything inside it is drawn dashed in the state's colour, and the viewer gets a button to hide it. Use it for "new in phase 2", "deprecated", "planned". |
+| `tag` | Name from `tags:`. The box and everything inside it is drawn dashed in the tag's colour, and the viewer gets a chip to switch it on and off. See "Tags". (`state` and `states:` are the older names and still work.) |
+| `until` | Name from `tags:`. The box is shown until that tag is switched on, then fades out: what a later phase replaces. |
 | `ref` | The id of another box. This box becomes a reference: a stand-in that names the real thing, and one click flies there. A reference is only a picture. If the dependency is real, also declare an arrow between the reference box and the real box (`[ck_pay, payments, authorise, mtls]`): it is not drawn inside the flow, where the reference box already says it, but it appears as a proper arrow at every level above. |
 | `group` | `true` on a box with nodes: draw it as an always-open frame at its parent's scale (an AWS account, a VPC, a swimlane) instead of a box you zoom into. |
 | `flow` | `down` or `right`: the direction this box's contents are laid out. **Leave it out by default**, at the top level too: strata then tries both and keeps the one that fits a screen better. Set it only when the picture shows the direction is wrong. A flow with a declared direction that comes out as a very thin strip is folded onto extra rows, which adds long loop-back arrows. |
@@ -88,6 +90,28 @@ edges:
 ### Arrow styles
 
 `flow` (default, neutral), `yes` (green) and `no` (red) are built in. If the diagram has decisions, do not give one of your own styles green or red, or a Yes branch will read as that style; redefine `yes` and `no` under `styles:` instead if you need those colours. In the array form, write `""` for the label when you want a style and no text: `[a, b, "", mtls]`. Declare others under `styles:` with `color`, optional `dash: dashed | dotted`, `width`, `arrow: none`, a `label` for the legend, and a `rank`. **Rank decides which style a merged arrow takes: the highest rank wins.** Give the worst case the highest rank (plaintext above TLS above mTLS), so a closed box never hides a bad link: seven arrows merge into "7 links · 5 plaintext", drawn red.
+
+## Tags: proposals and phases
+
+A tag is a named set of boxes and arrows the reader switches on and off with a chip in the top bar. Use it to show a proposal against what exists, or phases one after another.
+
+```yaml
+tags:
+  phase1: {label: Phase 1, color: teal, show: false}    # show: false starts hidden
+  phase2: {label: Phase 2, color: yellow, show: false}
+nodes:
+  - {id: cache, label: Read cache, tag: phase1}
+  - {id: old_note, label: Not built yet, note: "...", until: phase1}   # retires when phase1 comes on
+edges:
+  - [api, cache, read-through]                           # hidden while either end is hidden
+  - [gw, bus, audit events, flow, phase2]                # an arrow between existing boxes, in a tag
+  - {from: gw, to: legacy, style: plain, until: phase2}  # an arrow phase2 removes
+```
+
+- **Colour:** pick one no `kind` on the page uses, so tagged things stand out. An arrow carrying a tag is drawn dashed in the tag's colour.
+- **Order matters:** `n` switches on the next tag in file order and `p` switches the last one off, so declare phases in the order they are presented.
+- **Layout does not move:** a hidden box keeps its place, so nothing jumps when a tag comes on. Check the picture with every tag on (`--show a,b,c`) and with none.
+- **Keep what exists untagged.** Tag only what is proposed; use `until` for what a phase takes away.
 
 ## Stating the arrangement
 

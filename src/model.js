@@ -12,7 +12,7 @@ const KINDS = { // built in; a file's `kinds` adds to or overrides these
 };
 const STYLES = { flow: { rank: 1 }, yes: { color: 'green', rank: 2, width: 1.6 }, no: { color: 'red', rank: 2, width: 1.6 } };
 const SHAPES = { box: 'box', diamond: 'diamond', cylinder: 'cylinder', cyl: 'cylinder', actor: 'actor' };
-const NODE_KEYS = new Set(['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'ref', 'group', 'flow', 'place', 'about', 'widths', 'nodes']);
+const NODE_KEYS = new Set(['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'tag', 'until', 'ref', 'group', 'flow', 'place', 'about', 'widths', 'nodes']);
 const PLACE = /^(above|below|left of|right of|level with)\s+([\w.-]+)(?:\s+(none|tight|normal|wide))?$/;
 
 export function load(text) {
@@ -43,9 +43,10 @@ export function load(text) {
     styles[name] = { c: colour(d.color, `styles.${name}`), w: d.width || (d.color ? 1.7 : 1.3), dash, rank: d.rank ?? 1, label: d.label || null, noHead: d.arrow === 'none' || d.arrow === false };
   }
   const states = {};
-  for (const [name, def] of Object.entries(doc.states || {})) {
-    const d = asMap(def, `states.${name}`);
-    states[name] = { label: d.label || name, c: colour(d.color || 'green', `states.${name}`) };
+  // tags (the older name, states, still works): a named set of boxes and arrows the viewer can switch on and off
+  for (const [name, def] of Object.entries({ ...(doc.states || {}), ...(doc.tags || {}) })) {
+    const d = asMap(def, `tags.${name}`);
+    states[name] = { label: d.label || name, c: colour(d.color || 'green', `tags.${name}`), shown: !(d.show === false || d.show === 'off' || d.show === 'no') };
   }
 
   const byId = new Map();
@@ -74,7 +75,9 @@ export function load(text) {
       else if (SHAPES[raw.shape] !== 'box') nd.shape = SHAPES[raw.shape];
       if (kids && nd.shape) errors.push(`${at}: a node with nodes inside it must be a plain box`);
     }
-    if (raw.state != null) { if (!states[raw.state]) errors.push(`${at}: unknown state "${raw.state}" (declare it under states)`); else nd.state = String(raw.state); }
+    const tag = raw.tag ?? raw.state;
+    if (tag != null) { if (!states[tag]) errors.push(`${at}: unknown tag "${tag}" (declare it under tags)`); else nd.state = String(tag); }
+    if (raw.until != null) { if (!states[raw.until]) errors.push(`${at}: until names "${raw.until}", which is not a tag (declare it under tags)`); else nd.until = String(raw.until); }
     if (raw.ref != null) nd.ref = String(raw.ref);
     if (raw.group) { if (kids) nd.group = true; else errors.push(`${at}: group only makes sense on a node with nodes inside it`); }
     if (raw.flow != null) { if (raw.flow !== 'down' && raw.flow !== 'right') errors.push(`${at}: flow must be down or right`); else nd.flow = raw.flow; }
@@ -113,12 +116,15 @@ export function load(text) {
 
   const edges = [];
   (Array.isArray(doc.edges) ? doc.edges : doc.edges == null ? [] : (errors.push('edges must be a list'), [])).forEach((raw, i) => {
-    const e = Array.isArray(raw) ? { from: raw[0], to: raw[1], label: raw[2], style: raw[3] } : raw || {};
+    const e = Array.isArray(raw) ? { from: raw[0], to: raw[1], label: raw[2], style: raw[3], tag: raw[4] } : raw || {};
     const where = `edges[${i}] (${e.from} → ${e.to})`;
     for (const end of ['from', 'to']) if (e[end] == null || !byId.has(String(e[end]))) errors.push(`${where}: ${end} "${e[end]}" is not a node id`);
     const style = e.style == null ? 'flow' : String(e.style);
     if (!styles[style]) errors.push(`${where}: unknown style "${style}" (known: ${Object.keys(styles).join(', ')})`);
-    edges.push({ a: String(e.from), b: String(e.to), label: e.label == null ? '' : String(e.label), style });
+    const tag = e.tag ?? e.state;
+    if (tag != null && !states[tag]) errors.push(`${where}: unknown tag "${tag}" (declare it under tags)`);
+    if (e.until != null && !states[e.until]) errors.push(`${where}: until names "${e.until}", which is not a tag`);
+    edges.push({ a: String(e.from), b: String(e.to), label: e.label == null ? '' : String(e.label), style, ...(tag != null ? { tag: String(tag) } : {}), ...(e.until != null ? { until: String(e.until) } : {}) });
   });
 
   if (errors.length) { const err = new Error(errors.join('\n')); err.problems = errors; throw err; }

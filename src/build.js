@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { walk } from './model.js';
 
-const KEEP = ['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'ref', 'group', 'x', 'y', 'w', 'h', 'iw', 'ih', 'routes', 'xr'];
+const KEEP = ['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'until', 'ref', 'group', 'x', 'y', 'w', 'h', 'iw', 'ih', 'routes', 'xr'];
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 export function payload(model) {
@@ -38,7 +38,11 @@ canvas.drag{cursor:grabbing}
 #crumbs span{color:var(--muted)}
 #legend{top:12px;right:12px;display:flex;gap:12px;align-items:center;color:var(--muted);font-size:12px}
 #legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
-.toggle{color:var(--ink);border:1px dashed;font-weight:600}
+.toggle{color:var(--ink);border:1px solid;border-radius:999px;padding:2px 10px 2px 8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;transition:opacity .2s,background .2s}
+.toggle b{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--tc);background:var(--tc);transition:background .2s}
+.toggle.off{opacity:.6;border-style:dashed;font-weight:500}
+.toggle.off b{background:transparent}
+.toggle:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 #hint{bottom:12px;left:12px;color:var(--muted)}
 #stats{bottom:12px;right:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 @media (max-width:1100px){#legend span{display:none}}

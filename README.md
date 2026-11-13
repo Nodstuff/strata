@@ -32,7 +32,10 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 - **Second opinion**: an ELK route much longer than the direct distance is routed again by the same router, and the shorter line is kept.
 - **Stated placement**: a container whose boxes carry `place` is not given to ELK. `placeStated` in `layout.js` turns the statements into minimum-distance constraints per axis, solves them by longest path, and reports anything ambiguous as an error. Its arrows are drawn by the same router as the cross-container pieces.
 - **Lanes**: the router knows which segments are already drawn in a container and charges for running along another arrow's line, so parallel arrows take neighbouring lanes 9 units apart.
-- **Layout choice**: each container is laid out up to six ways (down or right, with the file's order held firmly, loosely or not at all) and the least busy result is kept, scored on arrow length, bends, crossings and how screen-shaped it is.
+- **Layout choice**: each container is laid out up to six ways (down or right, with the file's order held firmly, loosely or not at all) and the least busy result is kept, scored on arrow length, bends, crossings and how large the boxes come out once the picture is fitted to a screen.
+- **Using the room**: a level narrower than a screen has its sideways gaps widened, and a short wide one its row gaps, until it is about screen-shaped or fills the room it has anyway. Boxes keep their size. Stated levels get the same treatment.
+- **Gutter**: fitting a container leaves a margin on every side, where the labels of arrows that leave it sit clear of its boxes. A label on the left or right edge drops leading names until it fits.
+- **Tags**: a tag is a named set of boxes and arrows with a colour. Each is a chip in the top bar; switching one on fades its members in and makes them glow for a moment. `until: <tag>` on a box or arrow retires it when that tag comes on. `n` and `p` step through the tags in file order. Layout is fixed at build time, so a hidden box keeps its place.
 
 ## State
 
