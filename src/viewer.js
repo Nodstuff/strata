@@ -266,7 +266,9 @@ function draw() {
       if (g.alpha < 0.6) continue; // mid-fade arrows stay as faint lines: no label, no stub
       if (cut) { // arrows to the same off-screen box that leave the view together share one label
         const node = a.on ? b : a;
-        if (!stubs.some(q => q.node === node && q.out === a.on && Math.hypot(q.at[0] - cut[0], q.at[1] - cut[1]) < 90)) stubs.push({ at: cut, node, other: a.on ? a : b, out: a.on, alpha: g.alpha, col: st.c });
+        const near = d => q => q.out === a.on && Math.hypot(q.at[0] - cut[0], q.at[1] - cut[1]) < d, twin = stubs.find(q => q.node !== node && near(8)(q));
+        if (twin) twin.more = (twin.more || 0) + 1; // a second box at the end of the very same line: one label, counted
+        else if (!stubs.some(q => q.node === node && near(90)(q))) stubs.push({ at: cut, node, other: a.on ? a : b, out: a.on, alpha: g.alpha, col: st.c });
       } else if (text) {
         const pu = cp.L.sw / cp.L.iw, l = cp.l && [cp.L.sx + cp.l[0] * pu, cp.L.sy + cp.l[1] * pu];
         if (l && l[0] > 20 && l[0] < vw - 20 && l[1] > 56 && l[1] < vh - 50) { if (pu >= 0.66) midLabels.push({ x: l[0], y: l[1], len: 1e9, text, alpha: g.alpha, col: st.c, f: Math.min(10.5, 10.5 * pu) }); } // the spot the layout kept free for it
@@ -328,10 +330,24 @@ function draw() {
 
   // pass 4: off-screen stubs, on top of everything, clickable
   ctx.font = `500 11px ${FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-  for (const s of stubs) {
-    const text = (s.out ? '→ ' : '← ') + relName(s.node, s.other);
-    const w = ctx.measureText(text).width + 16, h = 20;
-    let x = clamp(s.at[0], 14 + w / 2, vw - 14 - w / 2), y = clamp(s.at[1], 52 + h / 2, vh - 46 - h / 2);
+  // Labels that would overlap along the top or bottom edge move apart sideways, each staying over
+  // its own line; only if there is no room for that do they stack.
+  const tags = stubs.map(s => {
+    const text = (s.out ? '→ ' : '← ') + relName(s.node, s.other) + (s.more ? ` +${s.more}` : ''), w = ctx.measureText(text).width + 16, h = 20;
+    return { s, text, w, h, x: clamp(s.at[0], 14 + w / 2, vw - 14 - w / 2), y: clamp(s.at[1], 52 + h / 2, vh - 46 - h / 2) };
+  });
+  for (const edge of [52 + 10, vh - 46 - 10]) {
+    const row = tags.filter(t => Math.abs(t.y - edge) < 1).sort((p, q) => p.s.at[0] - q.s.at[0]);
+    const reach = t => Math.max(0, t.w / 2 - 12); // how far a label may sit off its line and still cover it
+    for (let pass = 0; pass < 4; pass++) for (let i = 0; i < row.length - 1; i++) {
+      const a = row[i], b = row[i + 1], over = (a.w + b.w) / 2 + 6 - (b.x - a.x); if (over <= 0) continue;
+      const la = Math.max(0, Math.min(a.x - (a.s.at[0] - reach(a)), a.x - (14 + a.w / 2))), rb = Math.max(0, Math.min(b.s.at[0] + reach(b) - b.x, vw - 14 - b.w / 2 - b.x));
+      const da = Math.min(la, Math.max(over / 2, over - rb)), db = Math.min(rb, over - da);
+      a.x -= da; b.x += db;
+    }
+  }
+  for (const t of tags) {
+    const { s, text, w, h } = t; let { x, y } = t;
     const dir = y > vh / 2 ? -1 : 1;
     for (let i = 0; i < 10 && pills.some(p => Math.abs(p.x - x) < (p.w + w) / 2 + 4 && Math.abs(p.y - y) < h + 2); i++) y += dir * (h + 3);
     pills.push({ x, y, w, h, node: s.node });
@@ -370,6 +386,12 @@ function label(nd) {
   const f = lerp(fc, ft, m), fh = clamp(nd.sw * 0.018, 12, 15), hp = clamp(nd.sw * 0.02, 10, 18), left = nd.sx + nd.sw * 0.05;
   const lx = i => nd.note ? lerp(cx - nd.wL[i] * f / 2, left, m) : cx - nd.wL[i] * f / 2;
   const ly = i => lerp(top + (i * 1.2 + 0.95) * fc, dtop + (i * 1.2 + 0.95) * ft, m);
+  if (t > 0.5) { // an open container's title sits on a plate, so an arrow coming in over the top edge never strikes through it
+    ctx.font = `600 ${fh}px ${FONT}`; let hw = ctx.measureText(nd.title).width;
+    if (nd.sub) { ctx.font = `400 ${fh * 0.9}px ${FONT}`; hw += 9 + ctx.measureText(nd.sub).width; }
+    ctx.globalAlpha = nd.vis * (t - 0.5) * 2; rr(nd.sx + hp - 6, nd.sy + hp - 3, hw + 12, fh + 8, 5);
+    ctx.fillStyle = C.panel; ctx.fill(); ctx.fillStyle = rgba(colOf(nd), C.tint * 0.4); ctx.fill();
+  }
   ctx.fillStyle = C.ink; ctx.textAlign = 'left';
   if (nL === 1) { // one line: it slides from the middle of the box to the header as the box opens
     const ff = lerp(f, fh, t);

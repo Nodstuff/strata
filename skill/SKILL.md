@@ -125,11 +125,11 @@ Do not reach for this by default. For most levels the automatic arrangement is g
 
 - Does the top level read in five seconds? If not, there are too many boxes or too many arrows at that level.
 - Does each container, opened with `--at`, show its boxes at a readable size? A long chain wraps onto extra rows; if it still reads badly, split it into two nested boxes.
-- Every arrow is routed with right angles and goes round boxes. An arrow to something outside the container leaves through the container's frame and ends in a label at the screen edge naming where it goes; that is expected.
+- Every arrow is routed with right angles and goes round boxes. An arrow to something outside the container leaves through the container's frame and ends in a label at the screen edge naming where it goes; that is expected. A label ending in `+1` stands for two boxes at the end of the same line.
 
 ## Limits today
 
 - View only. People who open the HTML can zoom, pan, dive, toggle states and follow references; they cannot edit.
-- A route never passes behind a box, but two routes can run along the same channel and overlap for a stretch.
+- A route never passes behind a box and each arrow meets a container at its own point, but strata does not rearrange a container to suit what is outside it, so an arrow can still take a long way to the side its target sits on.
 - Arrow labels only show once you are zoomed in far enough for them to fit the room the layout kept for them, so a top level can show no labels.
 - A decision diamond's arrows attach to its bounding box, so they can stop slightly short of the point.
