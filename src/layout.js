@@ -14,6 +14,7 @@
 // picture above clean; the route inside decides where it lands, and no two arrows share one.
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { walk } from './model.js';
+import { quality } from './build.js';
 
 const elk = new ELK();
 const CLOSED_W = 230, CLOSED_H = 180;   // the box a closed container is drawn as
@@ -255,7 +256,7 @@ function placeStated(nd, fx = 1, fy = 1) {
   return { width: Math.max(...box.map(b => b.x + b.w)), height: Math.max(...box.map(b => b.y + b.h)), children: box, edges: [] };
 }
 
-export async function layout(model) {
+async function layoutOnce(model, hints) {
   const parentOf = new Map(), byId = new Map();
   walk(model.root, (nd, parent) => { parentOf.set(nd, parent); byId.set(nd.id, nd); });
   const pathOf = nd => { const p = []; for (let c = nd; c; c = parentOf.get(c)) p.unshift(c); return p; };
@@ -375,11 +376,37 @@ export async function layout(model) {
     if (stated) {
       try { make = (fx, fy) => placeStated(nd, fx, fy); res = await widen(make); } catch (e) { problems.push(e.message); res = null; make = null; }
     }
-    if (!res) {
+    let hint = hints && hints.get(nd.id);
+    while (!res) {
       const elkEdges = wanted.map(w => ({ id: w.id, sources: [w.a.id], targets: [w.b.id], labels: w.labels }));
       // a note that is about a box sits next to it: an unseen arrow ties the two together
       for (const c of nd.children) if (c.about && order.has(c.about)) elkEdges.push({ id: 'about:' + c.id, sources: [c.about], targets: [c.id], labels: [] });
-      const once = (dir, ord, bare, wrap, fx = 1, fy = 1) => elk.layout({
+      // Second time round (see layout): the level above has said which side each arrow out of this
+      // level leaves by. An unseen point on that side, tied to the boxes the arrow is for, pulls them
+      // toward it. Only the two sides the flow runs between can be asked for.
+      const pulls = dir => {
+        const nodes = [], edges = [];
+        for (const [group, h] of hint || []) {
+          const first = dir === 'DOWN' ? h.side === 0 : h.side === 2, last = dir === 'DOWN' ? h.side === 1 : h.side === 3, kids = h.kids.filter(k => order.has(k));
+          if ((!first && !last) || !kids.length) continue;
+          nodes.push({ id: 'away:' + group, width: 1, height: 1, layoutOptions: { 'elk.layered.layering.layerConstraint': first ? 'FIRST_SEPARATE' : 'LAST_SEPARATE' } });
+          for (const k of kids) edges.push({ id: 'away:' + group + ':' + k, sources: [first ? 'away:' + group : k], targets: [first ? k : 'away:' + group], labels: [] });
+        }
+        return { nodes, edges };
+      };
+      const strip = r => { // take the unseen points out again, and close the room they took
+        r.children = r.children.filter(c => !c.id.startsWith('away:')); r.edges = (r.edges || []).filter(e => !e.id.startsWith('away:'));
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; const see = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+        const pts = e => (e.sections || []).flatMap(sc => [sc.startPoint, ...(sc.bendPoints || []), sc.endPoint]);
+        for (const c of r.children) { see(c.x, c.y); see(c.x + c.width, c.y + c.height); }
+        for (const e of r.edges) { for (const p of pts(e)) see(p.x, p.y); for (const l of e.labels || []) if (l.x != null) { see(l.x, l.y); see(l.x + l.width, l.y + l.height); } }
+        for (const c of r.children) { c.x -= x0; c.y -= y0; }
+        for (const e of r.edges) { for (const p of pts(e)) { p.x -= x0; p.y -= y0; } for (const l of e.labels || []) if (l.x != null) { l.x -= x0; l.y -= y0; } }
+        r.width = x1 - x0; r.height = y1 - y0;
+        return r;
+      };
+      const unit = nd.children.reduce((s, c) => s + c.w + c.h, 0) / (2 * nd.children.length);
+      const once = (dir, ord, bare, wrap, fx = 1, fy = 1, pull = pulls(dir)) => elk.layout({
         id: nd.id,
         layoutOptions: {
           'elk.algorithm': 'layered',
@@ -404,8 +431,8 @@ export async function layout(model) {
           'elk.aspectRatio': '1.7',
           'elk.padding': '[top=0,left=0,bottom=0,right=0]',
         },
-        children: nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })),
-        edges: structuredClone(elkEdges).map(e => (bare.has(e.id) ? { ...e, labels: [] } : e)), // ELK writes into what it is given
+        children: [...nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })), ...pull.nodes],
+        edges: [...structuredClone(elkEdges).map(e => (bare.has(e.id) ? { ...e, labels: [] } : e)), ...pull.edges], // ELK writes into what it is given
       });
       // ELK can drop the route of a labelled loop-back when it wraps a chain. Retry those arrows
       // without a reserved label, then without wrapping, so every arrow keeps a route.
@@ -415,13 +442,13 @@ export async function layout(model) {
         if (bad.length) { r = await once(dir, ord, new Set(bad), wrap, fx, fy); bad = routeless(r); }
         if (bad.length && wrap) { r = await once(dir, ord, new Set(), false, fx, fy); wrap = false; }
         r.wrapped = wrap; r.how = [dir, ord, wrap];
+        if (hint) { r.score = busyness(r, unit); strip(r); } // judged with the pulls in: they stand for the lines that leave
         return r;
       };
       // Try the directions the file allows, each with the file's order held firmly, loosely and
       // not at all, and keep the least busy picture. Holding the order firmly wins ties, so the
       // author's order stands unless ignoring it is clearly cleaner. A declared flow that comes
       // out as a thin strip is also tried folded onto extra rows.
-      const unit = nd.children.reduce((s, c) => s + c.w + c.h, 0) / (2 * nd.children.length);
       const dirs = nd.flow ? [nd.flow === 'right' ? 'RIGHT' : 'DOWN'] : ['DOWN', 'RIGHT'];
       let best = Infinity;
       for (const dir of dirs) for (const [ord, handicap] of [['NODES_AND_EDGES', 0], ['PREFER_EDGES', 1.5], ['NONE', 3]]) {
@@ -429,11 +456,15 @@ export async function layout(model) {
         const thin = nd.flow ? Math.max(tries[0].width / tries[0].height, tries[0].height / tries[0].width) : 0;
         if (thin > 3.5) tries = [await run(dir, ord, true)];       // a strip this thin is unreadable: fold it
         else if (thin > 2.6) tries.push(await run(dir, ord, true)); // borderline: let the score decide
-        for (const r of tries) { const score = busyness(r, unit) + handicap; if (process.env.STRATA_DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
+        for (const r of tries) { const score = (r.score ?? busyness(r, unit)) + handicap; if (process.env.STRATA_DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
       }
       { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); make = (fx, fy) => run(dir, ord, wrap, fx, fy); }
       res.edges = (res.edges || []).filter(e => !e.id.startsWith('about:'));
       // In a folded flow ELK takes loop-backs the long way round the rows. Route those again, directly.
+      // A level pulled toward its exits must not come out smaller on a screen than it was without the pulls.
+      const need = Math.max(res.width / 1.7, res.height);
+      if (hint && need > 1.06 * hint.was) { hint = null; res = null; continue; }
+      nd.need = need;
       if (res.wrapped) rerouted = res.edges.filter(e => { const w = wanted.find(q => q.id === e.id); return w && order.get(w.a.id) > order.get(w.b.id); }).map(e => e.id);
     }
 
@@ -640,6 +671,28 @@ export async function layout(model) {
   }
   if (unrouted) model.warnings.push(`${unrouted} arrow piece(s) could not be routed round the boxes in their container and will be drawn straight`);
 
-  walk(model.root, nd => { delete nd.ports; delete nd.occ; for (const k of ['x', 'y', 'w', 'h', 'iw', 'ih']) if (nd[k] != null) nd[k] = r1(nd[k]); });
+  walk(model.root, nd => { delete nd.ports; delete nd.occ; if (hints) delete nd.need; for (const k of ['x', 'y', 'w', 'h', 'iw', 'ih']) if (nd[k] != null) nd[k] = r1(nd[k]); });
   return model;
+}
+
+// The picture is laid out twice. The first time, each level is arranged before the level above has
+// decided which side its outgoing arrows leave by, so a box can end up far from the side its arrow
+// needs. The second time, every level is told those sides and arranges its boxes toward them. The
+// second picture is kept only if its arrows are cleaner by the numbers `check --stats` prints.
+export async function layout(model) {
+  const spare = process.env.STRATA_ONE_PASS ? null : structuredClone(model);
+  const first = await layoutOnce(model, null);
+  if (!spare) return first;
+  const hints = new Map();
+  walk(first.root, nd => {
+    if (!nd.children || !nd.xr || nd.children.some(c => c.place)) return;
+    const m = new Map();
+    for (const [group, g] of Object.entries(nd.xr)) if (g.port) m.set(group, { side: sideOfPort(g.port, nd.iw, nd.ih), kids: Object.keys(g.r) });
+    if (m.size && nd.need) { m.was = nd.need; hints.set(nd.id, m); }
+  });
+  if (!hints.size) return first;
+  let second; try { second = await layoutOnce(spare, hints); } catch (e) { return first; }
+  const mark = m => { const t = quality(m).total; return t.crossings + 0.25 * t.bends + t.length; };
+  if (process.env.STRATA_DEBUG) console.error('first', mark(first).toFixed(1), 'second', mark(second).toFixed(1));
+  return mark(second) < mark(first) ? second : first;
 }
