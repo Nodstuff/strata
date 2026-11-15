@@ -261,15 +261,15 @@ function draw() {
     // a merged arrow takes the worst style among the arrows it stands for, and says so
     let st = es.reduce((w, e) => STY[e.style].rank > w.rank ? STY[e.style] : w, { rank: -1, w: 1.3 });
     // an arrow that exists only because of a tag is drawn in the tag's colour, so a proposed link stands out
+    const worst = es.filter(e => STY[e.style] === st).length;
     const tg = es.every(e => e.tag) ? es[0].tag : null;
     if (tg) st = { ...st, c: STATES[tg].c, dash: st.dash || [7, 5], w: Math.max(st.w, 1.7) };
     let col = st.c || C.line; if (C.dark && st.c) col = col.map(v => Math.round(v + (255 - v) * 0.24)); // on a dark page a saturated blue or purple line is hard to see: lift it
     const labels = new Set(es.map(e => e.label).filter(Boolean));
-    const worst = es.filter(e => STY[e.style] === st).length;
     const text = es.length === 1 ? es[0].label : (labels.size === 1 && es.every(e => e.label) ? `${[...labels][0]} ×${es.length}` : `${es.length} links`)
       + (st.label && st.c ? (worst === es.length ? ` · all ${st.label}` : ` · ${worst} ${st.label}`) : '');
     const lit = hot && (touches(a) || touches(b)), away = !(inHere(a) && inHere(b));
-    const quiet = only.size && !es.some(e => only.has(e.style)) ? 0.06 : 1; // not one of the styles picked in the legend
+    const quiet = only.size && !es.some(e => only.has(e.style)) ? 0.13 : 1; // not one of the styles picked in the legend
     if (lit) { near.add(a); near.add(b); col = col.map((v, i) => Math.round(v + (C.hi[i] - v) * (st.c ? 0.25 : 0.6))); } // a lit line is brighter as well as thicker; a plain grey one most of all
     const la = quiet < 1 ? 0 : g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
     ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.3 : 1); ctx.lineWidth = st.w + (lit ? 1.3 : 0) + (C.dark ? 0.35 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
@@ -494,10 +494,12 @@ function crumbs() {
 }
 const legend = $('legend');
 const picks = {};
+let showAll = null; // the button that ends a legend filter; on show only while one is on
 function pick(name, on) { // a legend entry is a filter: pick one or more arrow styles and the rest go faint
   if (!picks[name]) return;
   if (on) only.add(name); else only.delete(name);
   for (const [n, b] of Object.entries(picks)) { b.classList.toggle('sel', only.has(n)); b.classList.toggle('dim', only.size > 0 && !only.has(n)); b.setAttribute('aria-pressed', only.has(n)); }
+  if (showAll) showAll.hidden = !only.size;
   req(); remember();
 }
 for (const [name, s] of Object.entries(STY)) if (s.label && s.c) {
@@ -518,6 +520,11 @@ for (const [name, s] of Object.entries(STATES)) {
   b.className = 'toggle'; b.style.setProperty('--tc', rgba(s.c, 1)); b.style.borderColor = rgba(s.c, 0.8); b.style.background = rgba(s.c, 0.14);
   b.append(document.createElement('b'), s.label); b.onclick = () => setState(name, off.has(name));
   legend.appendChild(b); setState(name, s.shown !== false); if (s.shown === false) ta[name] = 0;
+}
+if (Object.keys(picks).length) {
+  showAll = document.createElement('button'); showAll.className = 'all'; showAll.textContent = 'Filtered · show all'; showAll.title = 'Only the picked arrow styles are at full strength. Click to show every arrow again (Esc)';
+  showAll.hidden = true; showAll.onclick = () => { for (const n of [...only]) pick(n, false); };
+  legend.insertBefore(showAll, legend.firstChild);
 }
 // stepping through the tags in the order the file declares them: forward switches the next one on, back the last one off
 function step(d) {
@@ -586,7 +593,7 @@ function remember() {
   if (focus !== root) q.push('at=' + focus.id);
   for (const [n, s] of Object.entries(STATES)) { const on = !off.has(n), def = s.shown !== false; if (on && !def) show.push(n); if (!on && def) hide.push(n); }
   if (show.length) q.push('show=' + show.join(',')); if (hide.length) q.push('hide=' + hide.join(','));
-  if (pinned && hot) q.push('hot=' + hot.id); if (only.size) q.push('only=' + [...only].join(','));
+  if (pinned && hot) q.push('hot=' + hot.id); // a legend filter is not kept: it dims most of the picture, and coming back to that after a reload looks broken
   try { history.replaceState(null, '', q.length ? '#' + q.join('&') : location.pathname + location.search); } catch (e) { /* a page opened from a file may refuse: the view still works */ }
 }
 

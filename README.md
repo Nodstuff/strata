@@ -39,7 +39,7 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 - **Pin and filter**: a click (or a tap) pins a box, so its arrows stay lit and the boxes they do not reach step back; click it again, click empty space or press Esc to let go. Each arrow style in the legend is a filter: click one or more and every other arrow goes faint (`#only=<style>`, `shot --only <style>`). Where two lines cross, one visibly passes over the other.
 - **Panel**: a pinned box opens a panel with its text and every arrow it has, by name and label, in both directions; clicking a row goes to the other end. The pinned box's arrows move in the direction they point (not when the system asks for reduced motion).
 - **Find**: `/` opens a search over every box's name; Enter goes to the first match and pins it.
-- **Links**: the page address follows the view (level, tags, pinned box, legend filter), so a copied link opens on the same picture. `‹` and `›` beside the tags step through them, as `p` and `n` do.
+- **Links**: the page address follows the view (level, tags, pinned box), so a copied link opens on the same picture. `‹` and `›` beside the tags step through them, as `p` and `n` do.
 - **Trunks**: arrows of the same style that go into the same box, or come out of the same box, may share a line and a meeting point. Each is labelled on the stretch that is its own.
 - **Room for titles**: on a level that is a tall column, plain boxes grow wider so their titles are larger once the level fits a screen; on a strip they grow taller.
 - **Busy levels**: `check` and `build` warn when one level holds more than 16 boxes or 30 arrows, and name the boxes with the most arrows.

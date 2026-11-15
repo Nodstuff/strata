@@ -34,7 +34,8 @@ canvas.drag{cursor:grabbing}
 #crumbs{top:12px;left:12px;display:flex;gap:2px;align-items:center;max-width:calc(100vw - 48px);overflow:hidden;white-space:nowrap}
 #crumbs button,.toggle,.sty{all:unset;cursor:pointer;padding:2px 6px;border-radius:6px}
 #crumbs button:hover,.toggle:hover,.sty:hover{background:var(--chipb)}
-.sty{transition:opacity .2s}.sty.sel{color:var(--ink);background:var(--chipb);font-weight:600}.sty.dim{opacity:.45}
+.sty{transition:opacity .2s}.sty.sel{color:var(--ink);background:var(--chipb);font-weight:600;box-shadow:0 0 0 1.5px var(--ink)}.sty.dim{opacity:.45}
+.all{all:unset;cursor:pointer;padding:2px 9px;border-radius:999px;font-weight:700;color:#1c1c1f;background:#f2c94c}.all[hidden]{display:none}
 .sty:focus-visible{outline:2px solid var(--muted);outline-offset:2px}
 .step{all:unset;cursor:pointer;padding:0 7px;border-radius:6px;font-size:16px;line-height:1;color:var(--ink)}.step:hover{background:var(--chipb)}
 .hud[hidden]{display:none}
