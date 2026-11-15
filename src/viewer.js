@@ -304,7 +304,8 @@ function draw() {
       if (ctx.globalAlpha > 0.85) { const dd = ctx.getLineDash(), w0 = ctx.lineWidth; ctx.setLineDash([]); ctx.strokeStyle = C.panel; ctx.lineWidth = w0 + 5; ctx.stroke(); ctx.strokeStyle = rgba(col, 1); ctx.lineWidth = w0; ctx.setLineDash(dd); }
       ctx.stroke();
       if (lit && !still) { // the lit box's arrows move in the direction they point
-        ctx.setLineDash([2, 13]); ctx.lineDashOffset = -(T / 26) % 15; ctx.strokeStyle = st.c ? C.ink : C.bg; // dark dots on a plain line, which is itself near white when lit ctx.lineWidth += 0.4; ctx.globalAlpha *= 0.85; ctx.stroke();
+        // dark dots on a plain line, which is itself near white when lit
+        ctx.setLineDash([2, 13]); ctx.lineDashOffset = -(T / 26) % 15; ctx.strokeStyle = st.c ? C.ink : C.bg; ctx.lineWidth += 0.4; ctx.globalAlpha *= 0.85; ctx.stroke();
         ctx.lineDashOffset = 0; ctx.strokeStyle = rgba(col, 1); moving = true;
       }
       ctx.setLineDash([]);
