@@ -675,12 +675,12 @@ async function layoutOnce(model, hints) {
   return model;
 }
 
-// The picture is laid out twice. The first time, each level is arranged before the level above has
+// With `twice`, the picture is laid out twice. The first time, each level is arranged before the level above has
 // decided which side its outgoing arrows leave by, so a box can end up far from the side its arrow
 // needs. The second time, every level is told those sides and arranges its boxes toward them. The
 // second picture is kept only if its arrows are cleaner by the numbers `check --stats` prints.
-export async function layout(model) {
-  const spare = process.env.STRATA_ONE_PASS ? null : structuredClone(model);
+export async function layout(model, { twice = false } = {}) {
+  const spare = twice ? structuredClone(model) : null;
   const first = await layoutOnce(model, null);
   if (!spare) return first;
   const hints = new Map();

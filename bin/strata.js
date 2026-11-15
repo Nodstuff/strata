@@ -13,6 +13,15 @@ import { layout } from '../src/layout.js';
 import { html, outline, legibility, busy, quality } from '../src/build.js';
 
 const [cmd, file, ...rest] = process.argv.slice(2);
+// strata facts go <dir> [--only internal/x] [-o facts.md]   what a Go module's code says about its architecture, as text with file and line
+if (cmd === 'facts') {
+  const [lang, dir, ...more] = [file, ...rest], o = n => { const i = more.indexOf(n); return i >= 0 ? more[i + 1] : null; };
+  if (lang !== 'go' || !dir) { console.error('usage: strata facts go <dir> [--only <path inside the module>] [-o facts.md]'); process.exit(2); }
+  const { genGo } = await import('../src/gen-go.js');
+  try { const g = await genGo(resolve(dir), { only: o('--only') }); if (o('-o')) { await writeFile(o('-o'), g.report); console.log(`ok · ${resolve(o('-o'))}`); } else process.stdout.write(g.report); }
+  catch (e) { console.error(e.message); process.exit(1); }
+  process.exit(0);
+}
 // strata gen go <dir> --experimental [--only internal/x] [-o out.yaml]   EXPERIMENTAL: a strata file of a Go module's packages and imports
 if (cmd === 'gen') {
   const [lang, dir, ...more] = [file, ...rest], o = n => { const i = more.indexOf(n); return i >= 0 ? more[i + 1] : null; };
@@ -29,11 +38,11 @@ if (cmd === 'gen') {
   process.exit(0);
 }
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
-const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [--stats] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
+const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [--stats] [--twice] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;
-try { model = await layout(load(await readFile(file, 'utf8'))); }
+try { model = await layout(load(await readFile(file, 'utf8')), { twice: rest.includes('--twice') }); } // --twice: a second layout that arranges each level toward where its arrows leave; slower
 catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem(s)' : 'error'}\n${e.message}`); process.exit(1); }
 for (const w of [...model.warnings, ...legibility(model), ...busy(model)]) console.error('warning: ' + w);
 const stem = basename(file).replace(/\.ya?ml$/, '');

@@ -245,6 +245,32 @@ export async function genGo(dir, { only = null } = {}) {
     '  reach: {color: blue, width: 1.3, dash: dashed, rank: 3, label: reaches through its imports}',
     'nodes:',
   ];
-  return { yaml: [...head, ...lines, 'edges:', ...edges, ''].join('\n'), packages: pkgs.length, imports: edges.length - calls - reaches, dropped, calls, reaches, systems: systems.size, module: mod,
+  // The same facts as plain text with file and line, for a person or Claude drawing the architecture by hand.
+  const where = f => `${mine.get(f.pkg).rel || '.'}/${f.file}:${f.line}`, relOfPkg = ip => mine.get(ip).rel || '.';
+  const rep = [`# Facts read from ${mod}${only ? ' (' + only + ')' : ''}`, '', 'Read from the code, offline. Each line is a fact, not a judgement: what it means for the architecture is for the reader to decide.', ''];
+  rep.push('## Programs (package main) and the outside systems each one reaches through its imports', '');
+  for (const p of pkgs.filter(x => x.Name === 'main').sort((a, b) => a.rel.localeCompare(b.rel))) rep.push(`- ${p.rel || '.'}: ${[...reachOf(p.ImportPath)].sort().join(', ') || 'none found'}${p.Doc ? ' · ' + p.Doc.replace(/\s+/g, ' ').trim().slice(0, 100) : ''}`);
+  rep.push('', '## Outside systems and the packages that hold a client for each', '');
+  for (const [n, kind] of [...systems].sort()) rep.push(`- ${n} (${kind}): ${[...talks].filter(t => t[1].has(n)).map(t => relOfPkg(t[0])).sort().join(', ')}`);
+  if (parts.size) {
+    rep.push('', '## NATS streams and key-value buckets named in the code', '');
+    for (const pt of [...parts.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))) {
+      const at = facts.find(f => (f.kind === 'stream' || f.kind === 'bucket') && f.name === pt.name);
+      rep.push(`- ${pt.kind} ${pt.name}${pt.subjects.size ? ' [' + [...pt.subjects].sort().join(', ') + ']' : ''} · ${[...pt.roles].map(([ip, rl]) => relOfPkg(ip) + ' (' + [...rl].sort().join(', ') + ')').join('; ')}${at ? ' · ' + where(at) : ''}`);
+    }
+  }
+  if (routes.size) {
+    rep.push('', '## HTTP routes by package, grouped by the start of the path (count, first place registered)', '');
+    for (const [ip, rs] of [...routes].sort((a, b) => b[1].length - a[1].length)) {
+      rep.push(`- ${relOfPkg(ip)}: ${rs.length} routes`);
+      const by = new Map(); for (const r of rs) { const k = r.name.split('/').slice(0, 4).join('/') || '/'; if (!by.has(k)) by.set(k, []); by.get(k).push(r); }
+      for (const [k, list] of [...by].sort((a, b) => b[1].length - a[1].length)) rep.push(`  - ${k} (${list.length}; ${[...new Set(list.map(r => r.method).filter(Boolean))].sort().join(' ') || 'any method'}) ${where(list[0])}`);
+    }
+  }
+  rep.push('', '## Packages most of the module imports (shared code, not architecture)', '', [...shared].map(ip => `${relOfPkg(ip)} (${usedBy.get(ip)})`).sort().join(', ') || 'none');
+  if (otherHosts.size) rep.push('', '## Hosts written in the code that are not a known service', '', [...otherHosts].sort().join(', '));
+  if (factsError) rep.push('', `Could not read the syntax tree (${factsError}): routes, streams, buckets and hosts are missing.`);
+  rep.push('', '## What this cannot see', '', '- Anything decided at run time: a subject or URL built from variables, a host that comes from configuration.', '- Which program runs where, how many copies, and what the network allows: read the deployment files for that.', '- A system called over plain HTTP with no SDK and no URL in the code.', '');
+  return { report: rep.join('\n'), yaml: [...head, ...lines, 'edges:', ...edges, ''].join('\n'), packages: pkgs.length, imports: edges.length - calls - reaches, dropped, calls, reaches, systems: systems.size, module: mod,
     routes: facts.filter(f => f.kind === 'route').length, streams: [...parts.values()].filter(x => x.kind === 'stream').length, buckets: [...parts.values()].filter(x => x.kind === 'bucket').length, otherHosts: [...otherHosts].sort(), factsError };
 }

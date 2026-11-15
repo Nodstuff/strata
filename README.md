@@ -42,7 +42,7 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 - **Links**: the page address follows the view (level, tags, pinned box), so a copied link opens on the same picture. `‹` and `›` beside the tags step through them, as `p` and `n` do.
 - **Trunks**: arrows of the same style that go into the same box, or come out of the same box, may share a line and a meeting point. Each is labelled on the stretch that is its own. Inside a container, the boxes that share one arrow out of it are drawn as one tree to the point where the arrow leaves.
 - **Exit points**: an arrow meets a container on the side nearest the boxes it is for, when that does not add crossings on the level above.
-- **Laid out twice**: the first layout finds which side of each container every outgoing arrow leaves by; the second arranges each level with its boxes pulled toward those sides. A level keeps the pulled arrangement only if it stays as large on screen, and the second picture is kept only if its arrows measure cleaner. Levels placed by hand (`place`) are never moved. A build takes about twice as long.
+- **Laid out twice, on request** (`--twice` on `check`, `build` or `shot`): the first layout finds which side of each container every outgoing arrow leaves by; the second arranges each level with its boxes pulled toward those sides. A level keeps the pulled arrangement only if it stays as large on screen, and the second picture is kept only if its arrows measure cleaner. Levels placed by hand (`place`) are never moved. A build takes about twice as long, and on the diagrams tried so far the gain is measurable but hard to see, so it is off by default.
 - **Measuring the arrows**: `strata check file.yaml --stats` prints, per level and in total, how often arrows cross, how many bends there are and how much line is drawn. Use it to judge a change to a diagram or to the router.
 - **Room for titles**: on a level that is a tall column, plain boxes grow wider so their titles are larger once the level fits a screen; on a strip they grow taller.
 - **Busy levels**: `check` and `build` warn when one level holds more than 16 boxes or 30 arrows, and name the boxes with the most arrows.
@@ -51,6 +51,10 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 ## State
 
 Version 0.1, view only. Local git repository, no remote. Dependencies: `elkjs` and `yaml`, both build-time.
+
+## Facts from Go code
+
+`strata facts go <dir> [--only internal/x] [-o facts.md]` prints what a Go module's code says about its architecture, as text with file and line: each program and the outside systems it reaches, which packages hold a client for which system, the NATS streams and buckets the code names, the HTTP routes each package serves, and the packages that are only shared code. It runs offline and writes nothing in the module. It is meant as input for a person or Claude drawing the architecture, not as a diagram: see the skill.
 
 ## Experimental: a diagram from Go code
 

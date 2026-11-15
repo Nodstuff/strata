@@ -1,6 +1,6 @@
 ---
 name: strata
-description: Build a zoomable, nested architecture or flow diagram with strata (one YAML file becomes one self-contained HTML page where boxes open as you zoom in). Use when the user asks for a strata diagram, a "zoomable" or "nested" diagram, or one picture that holds a system at several levels (cluster, service, feature, flow). NOT for a single flat diagram in a README or PR (use Mermaid there) and NOT for charts of data.
+description: Build a zoomable, nested architecture or flow diagram with strata (one YAML file becomes one self-contained HTML page where boxes open as you zoom in). Use when the user asks for a strata diagram, a "zoomable" or "nested" diagram, one picture that holds a system at several levels (cluster, service, feature, flow), or an architecture diagram drawn from a repository. NOT for a single flat diagram in a README or PR (use Mermaid there) and NOT for charts of data.
 ---
 
 # strata
@@ -17,6 +17,40 @@ The tool lives in `~/personal/strata`. Run it as `node ~/personal/strata/bin/str
 4. `strata build <name>.yaml -o <name>.html` and give the user the path. The HTML is self-contained and can be sent to anyone.
 
 `shot` takes `--size 1600x1000` (the default) and always renders the dark theme. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags; `--hot <id>` lights one box's arrows and dims the rest, which is how a reader untangles a busy level by pointing at a box. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
+
+Two more commands help judge a result. `strata check <name>.yaml --stats` prints how often arrows cross, per level: use it to compare two ways of grouping a busy level. `--twice` on `check`, `build` or `shot` lays the picture out a second time with each level arranged toward where its arrows leave; it takes twice as long and helps a little on crowded levels.
+
+## Drawing a system from its repository
+
+The diagram is made by judgement, not generated. What a reader needs (which things are one service, what a box is called, which flows matter) is not written in the code. Your job is to read the sources, decide, and keep every claim tied to where you read it.
+
+**1. Collect, before drawing anything.**
+
+| Level of the picture | Where the truth is | How to read it |
+|---|---|---|
+| Accounts, networks, clusters, managed services | Infrastructure code (Terraform, OpenTofu, CloudFormation) | Read the modules and the per-environment variables |
+| Namespaces, workloads, replicas, what may talk to what | Deployment files (Helm charts and values, Kubernetes manifests, network policies) | Read the templates and the values for the environment being drawn |
+| What each program talks to, serves and stores | The code | `strata facts go <dir>` for Go, then read the files it points at |
+| Flows inside a feature | The code | Read the handler and follow the calls; nothing extracts this |
+| What people already call things | Existing diagrams, design docs, the wiki | Ask the user for them; reuse their names |
+
+`strata facts go <dir> [--only <path>] [-o facts.md]` prints, with file and line: each program and the outside systems it reaches, which packages hold a client for which system, the NATS streams and buckets the code names, the HTTP routes each package serves, and the packages that are only shared code. It runs offline and writes nothing in the repository. It is a list of facts: it cannot see anything decided at run time, and it does not know which program runs where.
+
+**2. Decide the levels top down.** Boundaries first (account, cluster, namespace), then what runs, then what each running thing is made of, then flows. A package is rarely a box: several packages are one feature, and one binary can be several services. Name boxes the way the team does.
+
+**3. Draw one level at a time and check it**, with the loop above. For a large system, write one YAML fragment per service and join them with a small script, so a level can be redone without touching the rest.
+
+**4. Keep the evidence.**
+
+- Put the source of each box in a YAML comment above it: `# deploy/helm/app/values.yaml:210`, `# internal/saga/engine.go:88`.
+- Put the package path in `sub` on a box that stands for code (`sub: internal/saga`), so a reader can find it.
+- Draw only what you read. Where the sources disagree (a design doc says one thing, the chart another), draw what is deployed and say so in a `note`.
+- Mark what is planned with a tag, never as if it exists.
+- Tell the user what you could not verify, and ask instead of guessing about anything that decides the shape of the picture.
+
+**5. Check the picture against the facts before handing it over.** Every outside system in the facts should be in the picture or left out on purpose; every arrow to a database or queue in the picture should have a client in the facts. Say which of these you checked.
+
+An architecture file usually holds details of a private system. Keep it where the user says, and never put it in a public repository or send it to an outside service.
 
 ## The file
 
@@ -154,6 +188,7 @@ Do not reach for this by default. For most levels the automatic arrangement is g
 ## Limits today
 
 - View only. People who open the HTML can zoom, pan, dive, toggle states and follow references; they cannot edit.
-- A route never passes behind a box and each arrow meets a container at its own point, but strata does not rearrange a container to suit what is outside it, so an arrow can still take a long way to the side its target sits on.
+- A route never passes behind a box and each arrow meets a container at its own point. By default strata does not rearrange a container to suit what is outside it, so an arrow can still take a long way to the side its target sits on; `--twice` rearranges, within limits.
+- `strata facts` reads Go only.
 - Arrow labels only show once you are zoomed in far enough for them to fit the room the layout kept for them, so a top level can show no labels.
 - A decision diamond's arrows attach to its bounding box, so they can stop slightly short of the point.
