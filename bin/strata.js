@@ -13,6 +13,19 @@ import { layout } from '../src/layout.js';
 import { html, outline, legibility, busy } from '../src/build.js';
 
 const [cmd, file, ...rest] = process.argv.slice(2);
+// strata gen go <dir> --experimental [--only internal/x] [-o out.yaml]   EXPERIMENTAL: a strata file of a Go module's packages and imports
+if (cmd === 'gen') {
+  const [lang, dir, ...more] = [file, ...rest], o = n => { const i = more.indexOf(n); return i >= 0 ? more[i + 1] : null; };
+  if (lang !== 'go' || !dir) { console.error('usage: strata gen go <dir> --experimental [--only <path inside the module>] [-o out.yaml]'); process.exit(2); }
+  if (!more.includes('--experimental')) { console.error('strata gen is experimental and may change or go away: pass --experimental to use it'); process.exit(2); }
+  const { genGo } = await import('../src/gen-go.js');
+  try {
+    const g = await genGo(resolve(dir), { only: o('--only') }), out = o('-o') || basename(resolve(dir)) + '.yaml';
+    await writeFile(out, g.yaml);
+    console.log(`ok · ${g.packages} packages · ${g.imports} imports · ${resolve(out)}`);
+  } catch (e) { console.error(e.message); process.exit(1); }
+  process.exit(0);
+}
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
 const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();

@@ -48,3 +48,7 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 ## State
 
 Version 0.1, view only. Local git repository, no remote. Dependencies: `elkjs` and `yaml`, both build-time.
+
+## Experimental: a diagram from Go code
+
+`strata gen go <dir> --experimental [--only internal/x] [-o out.yaml]` writes a strata file of a Go module's packages: one box per package, nested the way the directories are, and an arrow for every import between two of the module's own packages. It is what `go list` reports, run offline and read-only; nothing is guessed. A directory with more than 14 packages is grouped mechanically: packages whose names share a start go in one box (`cnq…`), and the rest are split into Foundations (import nothing else there), Tops (nothing else there imports them) and Middle. The output is an ordinary strata file: edit it, or generate it again. Code flows are not generated yet. The command may change or go away.
