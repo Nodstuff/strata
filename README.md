@@ -41,6 +41,7 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 - **Find**: `/` opens a search over every box's name; Enter goes to the first match and pins it.
 - **Links**: the page address follows the view (level, tags, pinned box), so a copied link opens on the same picture. `‹` and `›` beside the tags step through them, as `p` and `n` do.
 - **Trunks**: arrows of the same style that go into the same box, or come out of the same box, may share a line and a meeting point. Each is labelled on the stretch that is its own. Inside a container, the boxes that share one arrow out of it are drawn as one tree to the point where the arrow leaves.
+- **Exit points**: an arrow meets a container on the side nearest the boxes it is for, when that does not add crossings on the level above.
 - **Measuring the arrows**: `strata check file.yaml --stats` prints, per level and in total, how often arrows cross, how many bends there are and how much line is drawn. Use it to judge a change to a diagram or to the router.
 - **Room for titles**: on a level that is a tall column, plain boxes grow wider so their titles are larger once the level fits a screen; on a strip they grow taller.
 - **Busy levels**: `check` and `build` warn when one level holds more than 16 boxes or 30 arrows, and name the boxes with the most arrows.

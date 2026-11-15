@@ -19,6 +19,7 @@ const elk = new ELK();
 const CLOSED_W = 230, CLOSED_H = 180;   // the box a closed container is drawn as
 const FIT = 0.3;                        // a closed container must stay under this share of its parent, so it is still closed when the parent fills the screen
 const SIDE = 38, BOTTOM = 38;
+const CROSS = 10;                       // what crossing another arrow costs the router; raising it was measured and does not lower the count
 const CLEAR = 13, LANE = 9;             // how far a routed line stays from a box, and from the next line in the same channel
 const GAP = { none: 0, tight: 24, normal: 58, wide: 112 };
 const WIDE = 1.55, STRETCH = [1.5, 2.1, 2.8, 3.6]; // a level narrower than a screen has its gaps widened sideways until it is about screen-shaped
@@ -125,11 +126,11 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
     let c = Math.abs(x1 - x0) + Math.abs(y1 - y0);
     if (y0 === y1) {
       for (const s of hor) if (Math.abs(s.a[1] - y0) < LANE - 2) c += 4 * lap(x0, x1, s.a[0], s.b[0]);
-      for (const s of ver) if (s.a[0] > Math.min(x0, x1) && s.a[0] < Math.max(x0, x1) && y0 > Math.min(s.a[1], s.b[1]) && y0 < Math.max(s.a[1], s.b[1])) c += 10;
+      for (const s of ver) if (s.a[0] > Math.min(x0, x1) && s.a[0] < Math.max(x0, x1) && y0 > Math.min(s.a[1], s.b[1]) && y0 < Math.max(s.a[1], s.b[1])) c += CROSS;
       let on = 0; for (const s of mhor) if (Math.abs(s.a[1] - y0) < 0.06) on = Math.max(on, lap(x0, x1, s.a[0], s.b[0])); c -= 0.62 * on;
     } else {
       for (const s of ver) if (Math.abs(s.a[0] - x0) < LANE - 2) c += 4 * lap(y0, y1, s.a[1], s.b[1]);
-      for (const s of hor) if (s.a[1] > Math.min(y0, y1) && s.a[1] < Math.max(y0, y1) && x0 > Math.min(s.a[0], s.b[0]) && x0 < Math.max(s.a[0], s.b[0])) c += 10;
+      for (const s of hor) if (s.a[1] > Math.min(y0, y1) && s.a[1] < Math.max(y0, y1) && x0 > Math.min(s.a[0], s.b[0]) && x0 < Math.max(s.a[0], s.b[0])) c += CROSS;
       let on = 0; for (const s of mver) if (Math.abs(s.a[0] - x0) < 0.06) on = Math.max(on, lap(y0, y1, s.a[1], s.b[1])); c -= 0.62 * on;
     }
     return c;
@@ -273,13 +274,25 @@ export async function layout(model) {
     let n = 0; while (n < pa.length && n < pb.length && pa[n] === pb[n]) n++;
     if (n >= pa.length || n >= pb.length) continue;
     for (const [chain, group] of [[pa.slice(n), 'o:' + pb[n].id], [pb.slice(n), 'i:' + pa[n].id]])
-      for (let i = 0; i < chain.length - 1; i++) if (!deep.has(chain[i].id + '|' + group)) deep.set(chain[i].id + '|' + group, chain[i + 1]);
+      for (let i = 0; i < chain.length - 1; i++) { const k = chain[i].id + '|' + group; if (!deep.has(k)) deep.set(k, new Set()); deep.get(k).add(chain[i + 1]); }
   }
   // Where an arrow may meet box b. For a container, a point far from the box the arrow is really
   // for costs what the detour inside will cost, so the arrow meets the container near that box
   // and on the side facing it. `share` turns a length inside b into the same share of the screen out here.
+  const aim = (b, group) => { // the space inside b taken by the boxes this arrow is for
+    const set = deep.get(b.id + '|' + group); if (!set) return null;
+    const x = Math.min(...[...set].map(c => c.x)), y = Math.min(...[...set].map(c => c.y));
+    return { x, y, w: Math.max(...[...set].map(c => c.x + c.w)) - x, h: Math.max(...[...set].map(c => c.y + c.h)) - y };
+  };
+  // what the line inside b will cost if the arrow meets b at pt (a point on b's border, in the level's own units)
+  const within = (b, group, pt, share) => {
+    const c = aim(b, group); if (!c) return 0;
+    const cc = centre(c), u = (pt[0] - b.x) / b.w * b.iw, v = (pt[1] - b.y) / b.h * b.ih;
+    const flat = Math.abs(pt[1] - b.y) < 0.05 || Math.abs(pt[1] - b.y - b.h) < 0.05;
+    return (flat ? Math.abs(u - cc[0]) + Math.min(Math.abs(v - c.y), Math.abs(v - c.y - c.h)) : Math.abs(v - cc[1]) + Math.min(Math.abs(u - c.x), Math.abs(u - c.x - c.w))) * 0.5 * share / b.iw;
+  };
   const exits = (b, group, toward, share) => {
-    const c = deep.get(b.id + '|' + group);
+    const c = aim(b, group);
     if (!c) return sidesOf(b, toward);
     const cc = centre(c), f = 0.5 * share / b.iw;
     return sidesOf(b, [...toward, [b.x + cc[0] / b.iw * b.w, b.y + cc[1] / b.ih * b.h]]).map(s => {
@@ -288,6 +301,20 @@ export async function layout(model) {
       const inside = flat ? Math.abs(u - cc[0]) + Math.min(Math.abs(v - c.y), Math.abs(v - c.y - c.h)) : Math.abs(v - cc[1]) + Math.min(Math.abs(u - c.x), Math.abs(u - c.x - c.w));
       return { ...s, cost: s.cost + inside * f };
     });
+  };
+
+  const segsOf = pts => pts.slice(0, -1).map((p, i) => [p, pts[i + 1]]);
+  const boxHit = (a, b, w, m) => Math.max(a[0], b[0]) > w.x - m && Math.min(a[0], b[0]) < w.x + w.w + m && Math.max(a[1], b[1]) > w.y - m && Math.min(a[1], b[1]) < w.y + w.h + m;
+  const clash = (pts, occ, tag, fam) => { // how often a line crosses, or rides along, the other arrows in its container
+    let n = 0;
+    for (const [a, b] of segsOf(pts)) for (const s of occ) {
+      if (s.tag === tag || (fam && s.grp && s.grp.some(g => fam.includes(g)))) continue;
+      const h1 = Math.abs(a[1] - b[1]) < 0.05, h2 = Math.abs(s.a[1] - s.b[1]) < 0.05;
+      const lo = (p, q, k) => Math.min(p[k], q[k]), hi = (p, q, k) => Math.max(p[k], q[k]);
+      if (h1 === h2) { const k = h1 ? 0 : 1; if (Math.abs(a[1 - k] - s.a[1 - k]) < LANE - 2 && Math.min(hi(a, b, k), hi(s.a, s.b, k)) - Math.max(lo(a, b, k), lo(s.a, s.b, k)) > 1) n++; }
+      else { const [h, v] = h1 ? [[a, b], [s.a, s.b]] : [[s.a, s.b], [a, b]]; if (v[0][0] > lo(...h, 0) && v[0][0] < hi(...h, 0) && h[0][1] > lo(...v, 1) && h[0][1] < hi(...v, 1)) n++; }
+    }
+    return n;
   };
 
   // ---------- pass 1 ----------
@@ -487,9 +514,11 @@ export async function layout(model) {
     for (const w of wanted) {
       const old = nd.routes[w.id]; if (!old) continue;
       const a = centre(w.a), b = centre(w.b), direct = Math.max(0, Math.abs(a[0] - b[0]) - (w.a.w + w.b.w) / 2) + Math.max(0, Math.abs(a[1] - b[1]) - (w.a.h + w.b.h) / 2);
-      if (weight(old.p) < 1.6 * direct + 120) continue;
-      const p = route(exits(w.a, 'o:' + w.b.id, [b], W), exits(w.b, 'i:' + w.a.id, [a], W), nd.children, W, H, nd.occ, w.id, w.grp);
-      if (!p || weight(p) > 0.8 * weight(old.p)) continue;
+      const inner = q => within(w.a, 'o:' + w.b.id, q[0], W) + within(w.b, 'i:' + w.a.id, q[q.length - 1], W), far = inner(old.p);
+      if (weight(old.p) < 1.6 * direct + 120 && far < 0.12 * W) continue;
+      const p = route(exits(w.a, 'o:' + w.b.id, [b], W), exits(w.b, 'i:' + w.a.id, [a], W), nd.children, W, H, nd.occ.filter(o => o.tag !== w.id), w.id, w.grp);
+      const X = 150, rest = nd.occ.filter(o => o.tag !== w.id); // a new crossing on this level costs more than a long line inside
+      if (!p || X * clash(p, rest, w.id, w.grp) + weight(p) + inner(p) > 0.8 * (X * clash(old.p, rest, w.id, w.grp) + weight(old.p) + far)) continue;
       nd.routes[w.id] = { p }; nd.occ = nd.occ.filter(s => s.tag !== w.id); occupy(nd.occ, p, w.id, w.grp);
     }
     // An arrow that shares a trunk is labelled on the longest stretch that is its own.
@@ -536,19 +565,6 @@ export async function layout(model) {
     chainOf(pb.slice(n), 'i:' + A.id, false, A);
   }
 
-  const segsOf = pts => pts.slice(0, -1).map((p, i) => [p, pts[i + 1]]);
-  const boxHit = (a, b, w, m) => Math.max(a[0], b[0]) > w.x - m && Math.min(a[0], b[0]) < w.x + w.w + m && Math.max(a[1], b[1]) > w.y - m && Math.min(a[1], b[1]) < w.y + w.h + m;
-  const clash = (pts, occ, tag, fam) => { // how often a line crosses, or rides along, the other arrows in its container
-    let n = 0;
-    for (const [a, b] of segsOf(pts)) for (const s of occ) {
-      if (s.tag === tag || (fam && s.grp && s.grp.some(g => fam.includes(g)))) continue;
-      const h1 = Math.abs(a[1] - b[1]) < 0.05, h2 = Math.abs(s.a[1] - s.b[1]) < 0.05;
-      const lo = (p, q, k) => Math.min(p[k], q[k]), hi = (p, q, k) => Math.max(p[k], q[k]);
-      if (h1 === h2) { const k = h1 ? 0 : 1; if (Math.abs(a[1 - k] - s.a[1 - k]) < LANE - 2 && Math.min(hi(a, b, k), hi(s.a, s.b, k)) - Math.max(lo(a, b, k), lo(s.a, s.b, k)) > 1) n++; }
-      else { const [h, v] = h1 ? [[a, b], [s.a, s.b]] : [[s.a, s.b], [a, b]]; if (v[0][0] > lo(...h, 0) && v[0][0] < hi(...h, 0) && h[0][1] > lo(...v, 1) && h[0][1] < hi(...v, 1)) n++; }
-    }
-    return n;
-  };
   const reoccupy = (L, tag) => { // a piece in L changed shape: tell the lanes
     L.occ = L.occ.filter(s => s.tag !== tag);
     if (L.routes[tag]) occupy(L.occ, L.routes[tag].p, tag);
@@ -607,7 +623,7 @@ export async function layout(model) {
     const goal = portGoal(sd, pick.u, X.iw, X.ih), gap = kid => { const c = centre(kid); return Math.abs(c[0] - goal.at[0]) + Math.abs(c[1] - goal.at[1]); };
     const drawn = [];
     for (const kid of [d.kids[0], ...d.kids.slice(1).sort((p, q) => gap(p) - gap(q))]) {
-      const rt = kid === d.kids[0] ? first : route(exits(kid, d.group, [goal.out], X.iw), [goal], X.children, X.iw, X.ih, X.occ, d.group, fam, drawn.length && !process.env.STRATA_NO_TREE ? { into: drawn } : null);
+      const rt = kid === d.kids[0] ? first : route(exits(kid, d.group, [goal.out], X.iw), [goal], X.children, X.iw, X.ih, X.occ, d.group, fam, drawn.length ? { into: drawn } : null);
       g.r[kid.id] = rt;
       if (rt) { occupy(X.occ, rt, d.group, fam); drawn.push(rt); } else unrouted++;
     }
