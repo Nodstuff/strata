@@ -36,6 +36,9 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 - **Using the room**: a level narrower than a screen has its sideways gaps widened, and a short wide one its row gaps, until it is about screen-shaped or fills the room it has anyway. Boxes keep their size. Stated levels get the same treatment.
 - **Gutter**: fitting a container leaves a margin on every side, where the labels of arrows that leave it sit clear of its boxes. A label on the left or right edge drops leading names until it fits.
 - **Quiet and lit**: arrows that leave the level being read are drawn faint. Pointing at a box, or at an edge label, lights that box's arrows and dims every other one; `#hot=<id>` (or `shot --hot <id>`) opens with a box lit. A label is never drawn on top of another.
+- **Pin and filter**: a click (or a tap) pins a box, so its arrows stay lit and the boxes they do not reach step back; click it again, click empty space or press Esc to let go. Each arrow style in the legend is a filter: click one or more and every other arrow goes faint (`#only=<style>`, `shot --only <style>`). Where two lines cross, one visibly passes over the other.
+- **Room for titles**: on a level that is a tall column, plain boxes grow wider so their titles are larger once the level fits a screen; on a strip they grow taller.
+- **Busy levels**: `check` and `build` warn when one level holds more than 16 boxes or 30 arrows, and name the boxes with the most arrows.
 - **Tags**: a tag is a named set of boxes and arrows with a colour. Each is a chip in the top bar; switching one on fades its members in and makes them glow for a moment. `until: <tag>` on a box or arrow retires it when that tag comes on. `n` and `p` step through the tags in file order. Layout is fixed at build time, so a hidden box keeps its place.
 
 ## State

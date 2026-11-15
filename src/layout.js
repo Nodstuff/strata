@@ -277,7 +277,7 @@ export async function layout(model) {
     }
     const order = new Map(nd.children.map((c, i) => [c.id, i]));
     const stated = nd.children.some(c => c.place);
-    let res, rerouted = [];
+    let res, rerouted = [], make = null;
     // Use the room a screen has: while the level is taller than a screen is, widen its sideways
     // gaps; while it is a long strip, widen the gaps between its rows. Boxes keep their size.
     const shape = r => (r.width + 2 * SIDE) / (r.height + 46 + BOTTOM);
@@ -302,7 +302,7 @@ export async function layout(model) {
     };
 
     if (stated) {
-      try { res = await widen((fx, fy) => placeStated(nd, fx, fy)); } catch (e) { problems.push(e.message); res = null; }
+      try { make = (fx, fy) => placeStated(nd, fx, fy); res = await widen(make); } catch (e) { problems.push(e.message); res = null; make = null; }
     }
     if (!res) {
       const elkEdges = wanted.map(w => ({ id: w.id, sources: [w.a.id], targets: [w.b.id], labels: w.labels }));
@@ -358,12 +358,28 @@ export async function layout(model) {
         const thin = nd.flow ? Math.max(tries[0].width / tries[0].height, tries[0].height / tries[0].width) : 0;
         if (thin > 3.5) tries = [await run(dir, ord, true)];       // a strip this thin is unreadable: fold it
         else if (thin > 2.6) tries.push(await run(dir, ord, true)); // borderline: let the score decide
-        for (const r of tries) { const score = busyness(r, unit) + handicap; if (score < best) { best = score; res = r; } }
+        for (const r of tries) { const score = busyness(r, unit) + handicap; if (process.env.STRATA_DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
       }
-      { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); }
+      { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); make = (fx, fy) => run(dir, ord, wrap, fx, fy); }
       res.edges = (res.edges || []).filter(e => !e.id.startsWith('about:'));
       // In a folded flow ELK takes loop-backs the long way round the rows. Route those again, directly.
       if (res.wrapped) rerouted = res.edges.filter(e => { const w = wanted.find(q => q.id === e.id); return w && order.get(w.a.id) > order.get(w.b.id); }).map(e => e.id);
+    }
+
+    // A level that is still a tall column has width to spare, and one that is still a strip has
+    // height to spare. Plain boxes grow into it: a wider box shows a larger title once the level is
+    // fitted to a screen, a taller one shows its detail lines. Kept only if the level gets no longer.
+    if (make && nd.children.length > 1) {
+      const plain = nd.children.filter(c => !c.children && !c.note && (!c.shape || c.shape === 'cylinder'));
+      const sh = shape(res), tall = sh < 1.2, strip = sh > 2.4;
+      if (plain.length && (tall || strip)) {
+        const f = tall ? Math.min(1.7, 1.5 / sh) : Math.min(1.45, sh / 2);
+        const was = plain.map(c => [c.w, c.h]);
+        for (const c of plain) { if (tall) c.w = Math.min(Math.max(c.w, CLOSED_W * 1.25), c.w * f); else c.h *= f; }
+        let t = null; try { t = await widen(make); } catch (e) { t = null; }
+        if (t && (tall ? t.height <= res.height * 1.02 : t.width <= res.width * 1.02)) { if (res.wrapped != null && t.wrapped == null) t.wrapped = res.wrapped; res = t; }
+        else plain.forEach((c, i) => { [c.w, c.h] = was[i]; });
+      }
     }
 
     // the inner space: content, padding, a header band, and room so closed containers stay closed at fit
@@ -371,7 +387,7 @@ export async function layout(model) {
     let W = Math.max(res.width + 2 * SIDE, ...closable.map(c => c.w / FIT));
     let H = 0, top = 0;
     for (let pass = 0; pass < 3; pass++) {
-      top = Math.max(46, 0.07 * W, 0.11 * H);
+      top = nd.id === '__root' ? SIDE : Math.max(46, 0.07 * W, 0.11 * H); // the top level has no title band to leave room for
       H = Math.max(top + res.height + BOTTOM, ...closable.map(c => c.h / FIT));
       if (!nd.group) { if (W / H > 2.3) H = W / 2.3; else if (W / H < 1.15) W = H * 1.15; }
     }
