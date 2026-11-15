@@ -20,6 +20,31 @@ function objects(text) {
   return out;
 }
 
+// What a third-party import says the code talks to. This is the signal in an architecture picture:
+// a package that imports the ClickHouse driver talks to ClickHouse. Longest match wins.
+const SYSTEMS = [
+  ['github.com/ClickHouse/clickhouse-go', 'ClickHouse', 'store'], ['github.com/nats-io/nats.go', 'NATS', 'store'],
+  ['github.com/jackc/pgx', 'Postgres', 'store'], ['github.com/lib/pq', 'Postgres', 'store'], ['github.com/go-sql-driver/mysql', 'MySQL', 'store'],
+  ['github.com/redis/go-redis', 'Redis', 'store'], ['github.com/go-redis/redis', 'Redis', 'store'], ['go.mongodb.org/mongo-driver', 'MongoDB', 'store'],
+  ['github.com/segmentio/kafka-go', 'Kafka', 'store'], ['github.com/IBM/sarama', 'Kafka', 'store'], ['github.com/confluentinc/confluent-kafka-go', 'Kafka', 'store'],
+  ['github.com/elastic/go-elasticsearch', 'Elasticsearch', 'store'], ['github.com/opensearch-project/opensearch-go', 'OpenSearch', 'store'],
+  ['github.com/minio/minio-go', 'S3-compatible storage', 'store'], ['go.etcd.io/etcd/client', 'etcd', 'store'],
+  ['k8s.io/client-go', 'Kubernetes API', 'cloud'], ['sigs.k8s.io/controller-runtime', 'Kubernetes API', 'cloud'],
+  ['github.com/hashicorp/vault', 'Vault', 'cloud'], ['go.opentelemetry.io/otel/exporters', 'OpenTelemetry collector', 'cloud'],
+  ['github.com/anthropics/anthropic-sdk-go', 'Anthropic API', 'api'], ['github.com/openai/openai-go', 'OpenAI API', 'api'], ['github.com/sashabaranov/go-openai', 'OpenAI API', 'api'],
+  ['github.com/slack-go/slack', 'Slack', 'api'], ['github.com/workos/workos-go', 'WorkOS', 'api'], ['github.com/stripe/stripe-go', 'Stripe', 'api'],
+  ['github.com/coreos/go-oidc', 'OIDC provider', 'api'], ['github.com/google/go-github', 'GitHub API', 'api'], ['github.com/twilio/twilio-go', 'Twilio', 'api'],
+  ['net/smtp', 'SMTP server', 'api'],
+];
+const AWS = /^github\.com\/aws\/aws-sdk-go(?:-v2)?\/service\/([a-z0-9]+)/, GCP = /^cloud\.google\.com\/go\/([a-z0-9]+)/;
+const NOT_A_SYSTEM = new Set(['internal', 'iam', 'compute', 'auth', 'longrunning']); // GCP helper modules, not services
+function systemOf(imp) {
+  let m = AWS.exec(imp); if (m) return ['AWS ' + m[1].toUpperCase(), 'cloud'];
+  m = GCP.exec(imp); if (m && !NOT_A_SYSTEM.has(m[1])) return ['GCP ' + m[1], 'cloud'];
+  let best = null; for (const s of SYSTEMS) if ((imp === s[0] || imp.startsWith(s[0] + '/') || imp.startsWith(s[0] + '.')) && (!best || s[0].length > best[0].length)) best = s;
+  return best ? [best[1], best[2]] : null;
+}
+
 const q = s => JSON.stringify(String(s)); // a JSON string is a valid YAML double-quoted string
 const idOf = rel => 'p_' + (rel || 'root').replace(/[^A-Za-z0-9]+/g, '_');
 
@@ -36,6 +61,13 @@ export async function genGo(dir, { only = null } = {}) {
   const mine = new Map(pkgs.map(p => [p.ImportPath, p]));
   const usedBy = new Map();
   for (const p of pkgs) for (const i of p.Imports || []) if (mine.has(i)) usedBy.set(i, (usedBy.get(i) || 0) + 1);
+  // A package nearly everything imports (a model, a logger) says nothing by being imported. Its box
+  // says how widely it is used; the arrows to it are left out, which is most of the noise gone.
+  const WIDE = Math.max(6, Math.ceil(0.12 * pkgs.length));
+  const shared = new Set(pkgs.filter(p => (usedBy.get(p.ImportPath) || 0) >= WIDE).map(p => p.ImportPath));
+  // what each package talks to, from the drivers and SDKs it imports itself
+  const systems = new Map(), talks = new Map();
+  for (const p of pkgs) for (const i of p.Imports || []) { const s = systemOf(i); if (!s) continue; systems.set(s[0], s[1]); if (!talks.has(p.ImportPath)) talks.set(p.ImportPath, new Set()); talks.get(p.ImportPath).add(s[0]); }
 
   // the directory tree: a directory that is a package and also holds packages becomes a box with the package inside it
   const base = only ? only.replace(/\/$/, '').split('/') : [];
@@ -92,7 +124,8 @@ export async function genGo(dir, { only = null } = {}) {
     lines.push(`${ind}  detail:`);
     if (doc) lines.push(`${ind}    - ${q(doc.length > 64 ? doc.slice(0, 61) + '...' : doc)}`);
     lines.push(`${ind}    - ${q(`${p.GoFiles.length} file${p.GoFiles.length === 1 ? '' : 's'} · used by ${usedBy.get(p.ImportPath) || 0}`)}`);
-    lines.push(`${ind}    - ${q(`imports ${own} here, ${other} outside`)}`);
+    lines.push(`${ind}    - ${q(shared.has(p.ImportPath) ? `shared: imported by ${usedBy.get(p.ImportPath)} packages (arrows not drawn)` : `imports ${own} here, ${other} outside`)}`);
+    if (talks.has(p.ImportPath)) lines.push(`${ind}    - ${q('talks to ' + [...talks.get(p.ImportPath)].join(', '))}`);
     idFor.set(p.ImportPath, idOf(p.rel));
   };
   const emit = (n, ind) => {
@@ -109,13 +142,28 @@ export async function genGo(dir, { only = null } = {}) {
   for (const k of [...tree.kids.values()].sort((a, b) => a.name.localeCompare(b.name))) emit(k, '  ');
 
   const edges = [];
-  for (const p of pkgs) for (const i of p.Imports || []) if (mine.has(i) && i !== p.ImportPath) edges.push(`  - [ ${idFor.get(p.ImportPath)}, ${idFor.get(i)} ]`);
+  let dropped = 0;
+  for (const p of pkgs) for (const i of p.Imports || []) if (mine.has(i) && i !== p.ImportPath) { if (shared.has(i)) dropped++; else edges.push(`  - [ ${idFor.get(p.ImportPath)}, ${idFor.get(i)} ]`); }
+  // the systems the code talks to, one box each, by kind; an arrow from each package that holds the client
+  const sid = n => 'sys_' + n.replace(/[^A-Za-z0-9]+/g, '_').toLowerCase();
+  for (const [kind, label, look] of [['store', 'Data stores', ['kind: store', 'shape: cylinder']], ['cloud', 'Cloud services', ['kind: infra']], ['api', 'External APIs', ['kind: external']]]) {
+    const names = [...systems].filter(s => s[1] === kind).map(s => s[0]).sort(); if (!names.length) continue;
+    lines.push(`  - id: sysgrp_${kind}`, `    label: ${q(label)}`, `    sub: ${q('found from the clients the code imports')}`, '    nodes:');
+    for (const n of names) {
+      const users = [...talks].filter(t => t[1].has(n)).length;
+      lines.push(`      - id: ${sid(n)}`, `        label: ${q(n)}`, ...look.map(l => '        ' + l), `        detail:`, `          - ${q(`used by ${users} package${users === 1 ? '' : 's'}`)}`);
+    }
+  }
+  let calls = 0;
+  for (const [ip, set] of talks) for (const n of set) { edges.push(`  - [ ${idFor.get(ip)}, ${sid(n)}, "", talk ]`); calls++; }
   const head = [
-    `# GENERATED by "strata gen go" (experimental) from ${mod}${only ? ' (' + only + ')' : ''}: ${pkgs.length} packages, ${edges.length} imports.`,
-    '# An arrow is an import: from the package that imports to the one it imports. Edit freely, or generate again.',
+    `# GENERATED by "strata gen go" (experimental) from ${mod}${only ? ' (' + only + ')' : ''}: ${pkgs.length} packages, ${edges.length - calls} imports drawn, ${dropped} to shared packages left out, ${calls} links to ${systems.size} outside systems.`,
+    '# A grey arrow is an import. A blue arrow says a package holds a client for that system. Edit freely, or generate again.',
     `title: ${q(mod.split('/').pop() + (only ? ' / ' + only : ''))}`,
-    `subtitle: ${q('Go packages and their imports')}`,
+    `subtitle: ${q('Go packages, their imports, and what they talk to')}`,
+    'styles:',
+    '  talk: {color: blue, width: 2, rank: 5, label: talks to}',
     'nodes:',
   ];
-  return { yaml: [...head, ...lines, 'edges:', ...edges, ''].join('\n'), packages: pkgs.length, imports: edges.length, module: mod };
+  return { yaml: [...head, ...lines, 'edges:', ...edges, ''].join('\n'), packages: pkgs.length, imports: edges.length - calls, dropped, calls, systems: systems.size, module: mod };
 }

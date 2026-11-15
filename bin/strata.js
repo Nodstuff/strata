@@ -22,7 +22,7 @@ if (cmd === 'gen') {
   try {
     const g = await genGo(resolve(dir), { only: o('--only') }), out = o('-o') || basename(resolve(dir)) + '.yaml';
     await writeFile(out, g.yaml);
-    console.log(`ok · ${g.packages} packages · ${g.imports} imports · ${resolve(out)}`);
+    console.log(`ok · ${g.packages} packages · ${g.imports} imports drawn (${g.dropped} to shared packages left out) · ${g.calls} links to ${g.systems} outside systems · ${resolve(out)}`);
   } catch (e) { console.error(e.message); process.exit(1); }
   process.exit(0);
 }
