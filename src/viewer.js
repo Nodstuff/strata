@@ -46,6 +46,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 function req() { if (!raf) raf = requestAnimationFrame(draw); }
 const gutter = () => clamp(vw * 0.1, 70, 170);
+let TOP = 52; // where the picture may begin: under the top bar, which is taller when the legend wraps
 function target(nd) {
   const top = 56, bot = 44;
   // a container keeps a gutter free on every side: the labels of arrows that leave it sit there, clear of its boxes
@@ -113,7 +114,7 @@ for (const nd of all) {
       nd.body = wrap(nd.note, W);
       if (0.9 / W * (1.62 * nd.lines.length + 0.5 + 1.32 * nd.body.length) <= 0.86 * aspect && 1.35 * nd.wT <= W) break;
     }
-  } else if (nd.detail) nd.body = nd.detail;
+  } else if (nd.detail) nd.body = nd.sub && !nd.ref && nd.detail[0] !== nd.sub ? [nd.sub, ...nd.detail] : nd.detail; // the short line stays, above the detail
   if (nd.body) nd.wB = Math.max(...nd.body.map(l => tw(l, 400)));
 }
 
@@ -286,7 +287,7 @@ function draw() {
       if (!a.on || !b.on) { // one end is off-screen: follow the route to the edge of the view and say where it goes
         const seq = a.on ? pts : pts.slice().reverse(), out = [seq[0]];
         for (let i = 0; i < seq.length - 1; i++) {
-          const c = clipSeg(seq[i], seq[i + 1], 14, 52, vw - 14, vh - 46);
+          const c = clipSeg(seq[i], seq[i + 1], 14, TOP, vw - 14, vh - 46);
           if (!c) { if (i === 0) out.length = 0; break; }
           if (i === 0) out[0] = c[0];
           out.push(c[1]);
@@ -332,7 +333,7 @@ function draw() {
     if ((p1[0] - p0[0]) * dx + (p1[1] - p0[1]) * dy <= 0) { ctx.setLineDash([]); continue; }
     let q0 = p0, q1 = p1, stub = null;
     if (!a.on || !b.on) { // one end is off-screen: cut at the viewport edge and say where it goes
-      const c = clipSeg(p0, p1, 14, 52, vw - 14, vh - 46); if (!c) { ctx.setLineDash([]); continue; }
+      const c = clipSeg(p0, p1, 14, TOP, vw - 14, vh - 46); if (!c) { ctx.setLineDash([]); continue; }
       q0 = c[0]; q1 = c[1];
       stub = a.on ? { at: q1, node: b, other: a, out: true } : { at: q0, node: a, other: b, out: false };
     }
@@ -395,9 +396,9 @@ function draw() {
     const say = () => (s.out ? '→ ' : '← ') + parts.join(' › ') + (s.more ? ` +${s.more}` : '');
     let text = say(), w = ctx.measureText(text).width + 16;
     while (side && parts.length > 1 && w > gutter() + 60) { parts.shift(); text = say(); w = ctx.measureText(text).width + 16; }
-    return { s, text, w, h, x: clamp(s.at[0], 14 + w / 2, vw - 14 - w / 2), y: clamp(s.at[1], 52 + h / 2, vh - 46 - h / 2) };
+    return { s, text, w, h, x: clamp(s.at[0], 14 + w / 2, vw - 14 - w / 2), y: clamp(s.at[1], TOP + h / 2, vh - 46 - h / 2) };
   });
-  for (const edge of [52 + 10, vh - 46 - 10]) {
+  for (const edge of [TOP + 10, vh - 46 - 10]) {
     const row = tags.filter(t => Math.abs(t.y - edge) < 1).sort((p, q) => p.s.at[0] - q.s.at[0]);
     const reach = t => Math.max(0, t.w / 2 - 12); // how far a label may sit off its line and still cover it
     for (let pass = 0; pass < 4; pass++) for (let i = 0; i < row.length - 1; i++) {
@@ -410,6 +411,8 @@ function draw() {
   for (const t of tags) {
     const { s, text, w, h } = t; let { x, y } = t;
     const dir = y > vh / 2 ? -1 : 1;
+    const pl = here !== root && here.plate; // the title of the container being looked at: a label moves sideways off it
+    if (pl && x - w / 2 < pl[0] + pl[2] + 6 && x + w / 2 > pl[0] - 6 && y - h / 2 < pl[1] + pl[3] + 3 && y + h / 2 > pl[1] - 3) x = Math.min(vw - 14 - w / 2, pl[0] + pl[2] + 10 + w / 2);
     for (let i = 0; i < 10 && pills.some(p => Math.abs(p.x - x) < (p.w + w) / 2 + 4 && Math.abs(p.y - y) < h + 2); i++) y += dir * (h + 3);
     pills.push({ x, y, w, h, node: s.node });
     ctx.globalAlpha = s.alpha * (hot || s.lit ? 1 : 0.8);
@@ -444,12 +447,14 @@ function label(nd) {
     fd = Math.min(13.5, bh * (hint ? 0.72 : 0.86) / blk, nd.sw * 0.9 / nd.wB, nd.sw * 0.9 / (1.35 * nd.wT));
     m = smooth((fd - 6.2) / 1.6); ft = 1.35 * fd; dtop = by + (bh * (hint ? 0.86 : 1) - fd * blk) / 2;
   }
-  const f = lerp(fc, ft, m), fh = clamp(nd.sw * 0.018, 12, 15), hp = clamp(nd.sw * 0.02, 10, 18), left = nd.sx + nd.sw * 0.05;
+  const band = nd.children && nd.ih ? Math.min(...nd.children.map(c => c.y)) * nd.sh / nd.ih : Infinity; // the room above the first box inside
+  const f = lerp(fc, ft, m), fh = Math.min(clamp(nd.sw * 0.018, 12, 15), band * 0.46), hp = Math.min(clamp(nd.sw * 0.02, 10, 18), band * 0.2), left = nd.sx + nd.sw * 0.05;
   const lx = i => nd.note ? lerp(cx - nd.wL[i] * f / 2, left, m) : cx - nd.wL[i] * f / 2;
   const ly = i => lerp(top + (i * 1.2 + 0.95) * fc, dtop + (i * 1.2 + 0.95) * ft, m);
   if (t > 0.5) { // an open container's title sits on a plate, so an arrow coming in over the top edge never strikes through it
     ctx.font = `600 ${fh}px ${FONT}`; let hw = ctx.measureText(nd.title).width;
     if (nd.sub) { ctx.font = `400 ${fh * 0.9}px ${FONT}`; hw += 9 + ctx.measureText(nd.sub).width; }
+    nd.plate = [nd.sx + hp - 6, nd.sy + hp - 3, hw + 12, fh + 8];
     ctx.globalAlpha = nd.vis * (t - 0.5) * 2; rr(nd.sx + hp - 6, nd.sy + hp - 3, hw + 12, fh + 8, 5);
     ctx.fillStyle = C.panel; ctx.fill(); ctx.fillStyle = rgba(colOf(nd), C.tint * 0.4); ctx.fill();
   }
@@ -480,6 +485,7 @@ function label(nd) {
 // ---------- chrome around the canvas ----------
 function crumbs() {
   const el = $('crumbs'), lg = $('legend');
+  if (lg) { const t = Math.max(52, lg.offsetTop + lg.offsetHeight + 8); if (t !== TOP) { TOP = t; req(); } }
   el.style.maxWidth = Math.max(160, vw - (lg ? lg.offsetWidth : 0) - 44) + 'px'; // never under the legend
   for (let keep = 3; keep >= 1; keep--) { // deep paths keep the last three levels, or fewer if that is all there is room for
     el.textContent = '';

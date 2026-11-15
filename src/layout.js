@@ -113,13 +113,13 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   };
   starts = [...starts]; goals = [...goals];
   for (const m of (join && join.into) || []) for (let i = 0; i < m.length - 1; i++) for (const P of onLine(m, i)) {
-    if (i === 0 && far(P, m[0]) < Math.max(70, 0.5 * far(m[0], m[1]))) continue;
+    if (i === 0) continue; // the stretch that leaves the relative's own box: a line joining there reads as going to that box
     const tail = [P, ...m.slice(i + 1)];
     goals.push({ at: P, out: P, cost: 0.3 * along(tail) - 14, tail: m.slice(i + 1), joined: true });
   }
   for (const m of (join && join.outof) || []) for (let i = 0; i < m.length - 1; i++) for (const P of onLine(m, i)) {
     const n = m.length - 1;
-    if (i === n - 1 && far(P, m[n]) < Math.max(70, 0.5 * far(m[n - 1], m[n]))) continue;
+    if (i === n - 1) continue;
     starts.push({ at: P, out: P, cost: 0.3 * along([...m.slice(0, i + 1), P]) - 14, head: m.slice(0, i + 1), joined: true });
   }
   const lap = (a0, a1, b0, b1) => Math.max(0, Math.min(Math.max(a0, a1), Math.max(b0, b1)) - Math.max(Math.min(a0, a1), Math.min(b0, b1)));
@@ -453,9 +453,9 @@ async function layoutOnce(model, hints) {
       let best = Infinity;
       for (const dir of dirs) for (const [ord, handicap] of [['NODES_AND_EDGES', 0], ['PREFER_EDGES', 1.5], ['NONE', 3]]) {
         let tries = [await run(dir, ord, false)];
-        const thin = nd.flow ? Math.max(tries[0].width / tries[0].height, tries[0].height / tries[0].width) : 0;
-        if (thin > 3.5) tries = [await run(dir, ord, true)];       // a strip this thin is unreadable: fold it
-        else if (thin > 2.6) tries.push(await run(dir, ord, true)); // borderline: let the score decide
+        const thin = Math.max(tries[0].width / tries[0].height, tries[0].height / tries[0].width);
+        if (nd.flow && thin > 3.5) tries = [await run(dir, ord, true)]; // a strip this thin is unreadable: fold it
+        else if (thin > 2.6) tries.push(await run(dir, ord, true));     // borderline, or no direction was asked for: let the score decide
         for (const r of tries) { const score = (r.score ?? busyness(r, unit)) + handicap; if (process.env.STRATA_DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
       }
       { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); make = (fx, fy) => run(dir, ord, wrap, fx, fy); }
@@ -500,7 +500,7 @@ async function layoutOnce(model, hints) {
     let W = Math.max(res.width + 2 * SIDE, ...closable.map(c => c.w / FIT));
     let H = 0, top = 0;
     for (let pass = 0; pass < 3; pass++) {
-      top = nd.id === '__root' ? SIDE : Math.max(46, 0.07 * W, 0.11 * H); // the top level has no title band to leave room for
+      top = nd.id === '__root' ? SIDE : Math.max(nd.group ? 62 : 46, 0.07 * W, 0.11 * H); // the top level has no title band to leave room for
       H = Math.max(top + res.height + BOTTOM, ...closable.map(c => c.h / FIT));
       if (!nd.group) { if (W / H > 2.3) H = W / 2.3; else if (W / H < 1.15) W = H * 1.15; }
     }

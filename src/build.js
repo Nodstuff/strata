@@ -57,7 +57,8 @@ canvas.drag{cursor:grabbing}
 @media (max-width:700px){#info{left:12px;right:12px;width:auto;top:auto;bottom:12px;max-height:42vh}#find{width:auto;right:12px}}
 #crumbs button:last-of-type{font-weight:600}
 #crumbs span{color:var(--muted)}
-#legend{top:12px;right:12px;display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+#legend{top:12px;right:12px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 6px;align-items:center;color:var(--muted);font-size:12px;max-width:calc(100vw - 300px)}
+#legend>*{flex:none;white-space:nowrap}
 #legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
 .toggle{color:var(--ink);border:1px solid;border-radius:999px;padding:2px 10px 2px 8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;transition:opacity .2s,background .2s}
 .toggle b{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--tc);background:var(--tc);transition:background .2s}
@@ -97,6 +98,7 @@ export function legibility(model, vw = 1440, vh = 800) {
     const top = !parent, gx = top ? vw * 0.04 : Math.max(70, Math.min(170, vw * 0.1)), gy = top ? (vh - 100) * 0.04 : 34;
     const k = Math.min((vw - 2 * gx) / nd.iw, (vh - 100 - 2 * gy) / nd.ih), small = [];
     for (const c of nd.children) {
+      if (c.shape === 'actor') continue; // a name under a figure: there is nothing to shorten
       const lines = c.label.split('\n'), rows = lines.length * 1.2 + (c.sub ? 0.85 : 0) + (c.children ? 1 : 0);
       const px = Math.min(22, c.w * k * (c.shape === 'diamond' ? 0.6 : 0.86) / (Math.max(...lines.map(l => l.length)) * 0.6), c.h * k * (c.shape === 'diamond' ? 0.5 : 0.7) / rows);
       if (px < 7.5) small.push(c.id);

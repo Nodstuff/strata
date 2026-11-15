@@ -38,7 +38,7 @@ if (cmd === 'gen') {
   process.exit(0);
 }
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
-const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [--stats] [--twice] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
+const usage = () => { console.error('usage: strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--twice] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;
@@ -53,7 +53,10 @@ if (cmd === 'check' && rest.includes('--stats')) { // how clean the arrows are, 
   console.log(`total · ${ql.total.lines} lines · ${ql.total.crossings} crossings · ${ql.total.bends} bends · ${ql.total.length} length · ${ql.total.slanted} slanted`);
 } else if (cmd === 'check') {
   const o = outline(model);
-  console.log(o.text);
+  if (rest.includes('--summary')) { // the count, and the levels that hold the most, without the tree
+    const big = []; (function see(nd) { if (nd.children) { big.push([nd.id === '__root' ? 'top level' : nd.id, nd.children.length]); nd.children.forEach(see); } })(model.root);
+    console.log(big.sort((p, q) => q[1] - p[1]).slice(0, 8).map(([id, n]) => `${String(n).padStart(3)} boxes in ${id}`).join('\n'));
+  } else console.log(o.text);
   console.log(`\nok · ${o.boxes} boxes · ${o.arrows} arrows · ${o.depth} levels deep`);
 } else if (cmd === 'build') {
   const out = opt('-o') || stem + '.html';

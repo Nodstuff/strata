@@ -12,11 +12,11 @@ The tool lives in `~/personal/strata`. Run it as `node ~/personal/strata/bin/str
 ## The loop
 
 1. Write `<name>.yaml` (format below).
-2. `strata check <name>.yaml`: fix every problem it lists. It prints the tree, so read it and confirm the nesting is what you meant.
+2. `strata check <name>.yaml`: fix every problem it lists. It prints the tree, so read it and confirm the nesting is what you meant. While drafting, `strata check <name>.yaml --summary` prints only the box count and the fullest levels: check it early, because cutting a diagram down after it is written costs a rewrite.
 3. `strata shot <name>.yaml -o top.png`, then `strata shot <name>.yaml --at <id> -o <id>.png` for each container that matters. **Look at the pictures** (Read the PNG). Fix what reads badly, usually by reordering nodes or nesting more.
 4. `strata build <name>.yaml -o <name>.html` and give the user the path. The HTML is self-contained and can be sent to anyone.
 
-`shot` takes `--size 1600x1000` (the default) and always renders the dark theme. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags; `--hot <id>` lights one box's arrows and dims the rest, which is how a reader untangles a busy level by pointing at a box. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
+`shot` takes `--size 1600x1000` (the default) and always renders the dark theme. A picture takes 5 to 20 seconds, so take a few per command, not twenty. `--only <style>` lights the arrows of one style and dims the rest. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags; `--hot <id>` lights one box's arrows and dims the rest, which is how a reader untangles a busy level by pointing at a box. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
 
 Two more commands help judge a result. `strata check <name>.yaml --stats` prints how often arrows cross, per level: use it to compare two ways of grouping a busy level. `--twice` on `check`, `build` or `shot` lays the picture out a second time with each level arranged toward where its arrows leave; it takes twice as long and helps a little on crowded levels.
 
@@ -30,11 +30,13 @@ The diagram is made by judgement, not generated. What a reader needs (which thin
 |---|---|---|
 | Accounts, networks, clusters, managed services | Infrastructure code (Terraform, OpenTofu, CloudFormation) | Read the modules and the per-environment variables |
 | Namespaces, workloads, replicas, what may talk to what | Deployment files (Helm charts and values, Kubernetes manifests, network policies) | Read the templates and the values for the environment being drawn |
-| What each program talks to, serves and stores | The code | `strata facts go <dir>` for Go, then read the files it points at |
+| What each program talks to, serves and stores | The code | `strata facts go <dir>` for Go, then read the files it points at. For other languages, see below |
 | Flows inside a feature | The code | Read the handler and follow the calls; nothing extracts this |
 | What people already call things | Existing diagrams, design docs, the wiki | Ask the user for them; reuse their names |
 
 `strata facts go <dir> [--only <path>] [-o facts.md]` prints, with file and line: each program and the outside systems it reaches, which packages hold a client for which system, the NATS streams and buckets the code names, the HTTP routes each package serves, and the packages that are only shared code. It runs offline and writes nothing in the repository. It is a list of facts: it cannot see anything decided at run time, and it does not know which program runs where.
+
+For a repository that is not Go, collect the same facts by reading: start at each program's entry point (`main`), which shows the run modes, what is wired together and the background loops; sweep for where routes are registered and where RPC methods or tools are declared; find the client constructors and connection strings for what it talks to; and read the comment at the top of each module before its body. Say in your report which parts you read in full and which you took from comments or docs.
 
 **2. Decide the levels top down.** Boundaries first (account, cluster, namespace), then what runs, then what each running thing is made of, then flows. A package is rarely a box: several packages are one feature, and one binary can be several services. Name boxes the way the team does.
 
@@ -60,8 +62,8 @@ subtitle: production            # optional
 flow: down                      # optional: down | right, for the top level
 
 styles:                         # optional: line styles for arrows
-  mtls:  {color: green, rank: 4, label: mTLS}
-  plain: {color: red, dash: dashed, rank: 9, label: plaintext}
+  mtls:  {color: teal, rank: 4, label: mTLS}
+  plain: {color: orange, dash: dashed, rank: 9, label: plaintext}
 tags:                           # optional: sets of boxes and arrows the viewer switches on and off
   phase2: {label: Phase 2, color: green, show: false}
 
@@ -106,8 +108,8 @@ edges:
 |---|---|
 | `id` | Required, unique across the whole file. Letters, digits, `_`. |
 | `label` | The title. `\n` makes a second line. Defaults to the id. |
-| `sub` | One short muted line (a role, a tech, a count). |
-| `detail` | A list of short lines (about 30 characters each). Appears when zoomed in enough. |
+| `sub` | One short muted line (a role, a tech, a count, the code path). It stays as the first line when `detail` shows. On a `ref` box it is replaced by the name of the box referred to, so put anything else in the label. |
+| `detail` | A list of short lines (about 30 characters each). Appears when zoomed in enough. A box with `nodes` may have it too: it shows while the box is closed. |
 | `note` | Makes the box an annotation with wrapped body text; `label` is its heading. A note cannot contain nodes. |
 | `kind` | Colour by meaning: `service` (blue), `store` (orange), `infra` (purple), `external` (grey, dashed), `step` (default), `frame`, `note`. Any colour name also works: `blue green red orange purple yellow grey violet teal slate`. Add your own under top-level `kinds:`. |
 | `shape` | `box` (default), `diamond` (a decision), `cylinder` (a database or queue), `actor` (a person). |
@@ -123,7 +125,7 @@ edges:
 
 ### Arrow styles
 
-`flow` (default, neutral), `yes` (green) and `no` (red) are built in. If the diagram has decisions, do not give one of your own styles green or red, or a Yes branch will read as that style; redefine `yes` and `no` under `styles:` instead if you need those colours. In the array form, write `""` for the label when you want a style and no text: `[a, b, "", mtls]`. Declare others under `styles:` with `color`, optional `dash: dashed | dotted`, `width`, `arrow: none`, a `label` for the legend, and a `rank`. **Rank decides which style a merged arrow takes: the highest rank wins.** Give the worst case the highest rank (plaintext above TLS above mTLS), so a closed box never hides a bad link: seven arrows merge into "7 links · 5 plaintext", drawn red.
+`flow` (default, neutral), `yes` (green) and `no` (red) are built in. In a diagram with decisions, green and red already mean Yes and No, so give your own styles other colours (teal for the safest link, orange for the worst), or a Yes branch will read as that style. If the worst case must be red, redefine `yes` and `no` under `styles:` in other colours. A diagram with no decisions may use green and red freely. An arrow has one style: when it carries two meanings (how it is authenticated, and what it may see), pick the one the diagram is about for the style and put the other in the label. In the array form, write `""` for the label when you want a style and no text: `[a, b, "", mtls]`. Declare others under `styles:` with `color`, optional `dash: dashed | dotted`, `width`, `arrow: none`, a `label` for the legend, and a `rank`. **Rank decides which style a merged arrow takes: the highest rank wins.** Give the worst case the highest rank (plaintext above TLS above mTLS), so a closed box never hides a bad link: seven arrows merge into "7 links · 5 plaintext", drawn red.
 
 ## Tags: proposals and phases
 
@@ -177,12 +179,14 @@ Do not reach for this by default. For most levels the automatic arrangement is g
 - **Use `group` for boundaries, nesting for depth.** Accounts, VPCs and trust zones are groups (always visible). Things with internals worth hiding (a cluster, a namespace, a service, a feature) are plain nested boxes.
 - **Heed the legibility warning.** `check` says when a level's titles will be too small to read on an ordinary screen and names the boxes. Shorten those labels or move boxes into a nested box.
 - **Keep text short.** Labels of one to three words, `sub` a few words, `detail` lines about 30 characters. Long prose belongs in a `note`.
-- **Arrow labels are optional.** Label the protocol or the reason, not the obvious ("calls").
+- **Arrow labels are optional.** Label the protocol or the reason, not the obvious ("calls"). Labels, a decision's Yes and No included, show only when zoomed in far enough; at a distance the colour carries the branch.
+- **When a flow step stands for another part of the picture** (a `ref` box), point its arrow at the box where that part begins: the first step of the other flow, or the component itself if it has no flow.
 
 ## What to check in the pictures
 
 - Does the top level read in five seconds? If not, there are too many boxes or too many arrows at that level.
-- Does each container, opened with `--at`, show its boxes at a readable size? A long chain wraps onto extra rows; if it still reads badly, split it into two nested boxes.
+- Does each container, opened with `--at`, show its boxes at a readable size? A long chain wraps onto extra rows; if it still reads badly, split it into two nested boxes. A container that comes out as a thin column or strip, using a third of the screen, is the case for setting `flow` on it.
+- Is a level still tangled after regrouping? `check --stats` names the levels with the most crossings; try `--twice` on those, and keep it only if the picture is visibly better.
 - Every arrow is routed with right angles and goes round boxes. An arrow to something outside the container leaves through the container's frame and ends in a label at the screen edge naming where it goes; that is expected. A label ending in `+1` stands for two boxes at the end of the same line.
 
 ## Limits today
@@ -190,5 +194,6 @@ Do not reach for this by default. For most levels the automatic arrangement is g
 - View only. People who open the HTML can zoom, pan, dive, toggle states and follow references; they cannot edit.
 - A route never passes behind a box and each arrow meets a container at its own point. By default strata does not rearrange a container to suit what is outside it, so an arrow can still take a long way to the side its target sits on; `--twice` rearranges, within limits.
 - `strata facts` reads Go only.
+- A top level that is a chain of groups comes out as a wide strip with small boxes. Fewer, larger groups at the top help; so does putting people and outside services in one group each.
 - Arrow labels only show once you are zoomed in far enough for them to fit the room the layout kept for them, so a top level can show no labels.
 - A decision diamond's arrows attach to its bounding box, so they can stop slightly short of the point.
