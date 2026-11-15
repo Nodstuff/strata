@@ -82,7 +82,7 @@ const centre = b => [b.x + b.w / 2, b.y + b.h / 2];
 const portAt = (sd, u, W, H) => (sd === 0 ? [u, 0] : sd === 1 ? [u, H] : sd === 2 ? [0, u] : [W, u]);
 const portGoal = (sd, u, W, H, cost = 0) => ({ at: portAt(sd, u, W, H), cost, out: sd === 0 ? [u, CLEAR] : sd === 1 ? [u, H - CLEAR] : sd === 2 ? [CLEAR, u] : [W - CLEAR, u] });
 const sideOfPort = (pt, W, H) => { const d = [pt[1], H - pt[1], pt[0], W - pt[0]].map(Math.abs); return d.indexOf(Math.min(...d)); };
-function route(starts, goals, walls, W, H, occ, tag, grp) {
+function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   const inside = (x, y, w) => x > w.x - CLEAR + 1 && x < w.x + w.w + CLEAR - 1 && y > w.y - CLEAR + 1 && y < w.y + w.h + CLEAR - 1;
   const ok = (x, y) => !walls.some(w => inside(x, y, w));
   const lanes = (lo, hi) => [0, 1, 2].flatMap(k => [lo - CLEAR - k * LANE, hi + CLEAR + k * LANE]);
@@ -97,6 +97,28 @@ function route(starts, goals, walls, W, H, occ, tag, grp) {
   const xs = axis([CLEAR, W - CLEAR, ...ends.map(s => s.out[0]), ...walls.flatMap(w => lanes(w.x, w.x + w.w)), ...mver.map(s => s.a[0])], W);
   const ys = axis([CLEAR, H - CLEAR, ...ends.map(s => s.out[1]), ...walls.flatMap(w => lanes(w.y, w.y + w.h)), ...mhor.map(s => s.a[1])], H);
   const xi = new Map(xs.map((v, i) => [v, i])), yi = new Map(ys.map((v, i) => [v, i])), NY = ys.length;
+  // A hub's arrows form a tree. An arrow into a box may end on a relative's line and ride it the
+  // rest of the way in; an arrow out of a box may begin on a relative's line. Not on the stretch
+  // next to the relative's own far end, where it would read as coming from that box.
+  const far = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
+  const along = m => m.slice(0, -1).reduce((n, q, i) => n + far(q, m[i + 1]), 0);
+  const onLine = (m, i) => { // the grid points on segment i of a relative's route
+    const a = m[i], b = m[i + 1], out = [];
+    if (Math.abs(a[1] - b[1]) < 0.05) { for (const x of xs) if (x >= Math.min(a[0], b[0]) - 0.05 && x <= Math.max(a[0], b[0]) + 0.05) out.push([x, r1(a[1])]); }
+    else for (const y of ys) if (y >= Math.min(a[1], b[1]) - 0.05 && y <= Math.max(a[1], b[1]) + 0.05) out.push([r1(a[0]), y]);
+    return out;
+  };
+  starts = [...starts]; goals = [...goals];
+  for (const m of (join && join.into) || []) for (let i = 0; i < m.length - 1; i++) for (const P of onLine(m, i)) {
+    if (i === 0 && far(P, m[0]) < Math.max(70, 0.5 * far(m[0], m[1]))) continue;
+    const tail = [P, ...m.slice(i + 1)];
+    goals.push({ at: P, out: P, cost: 0.3 * along(tail) - 14, tail: m.slice(i + 1), joined: true });
+  }
+  for (const m of (join && join.outof) || []) for (let i = 0; i < m.length - 1; i++) for (const P of onLine(m, i)) {
+    const n = m.length - 1;
+    if (i === n - 1 && far(P, m[n]) < Math.max(70, 0.5 * far(m[n - 1], m[n]))) continue;
+    starts.push({ at: P, out: P, cost: 0.3 * along([...m.slice(0, i + 1), P]) - 14, head: m.slice(0, i + 1), joined: true });
+  }
   const lap = (a0, a1, b0, b1) => Math.max(0, Math.min(Math.max(a0, a1), Math.max(b0, b1)) - Math.max(Math.min(a0, a1), Math.min(b0, b1)));
   const stepCost = (x0, y0, x1, y1) => { // length, plus riding on or crossing another arrow's line
     let c = Math.abs(x1 - x0) + Math.abs(y1 - y0);
@@ -112,7 +134,7 @@ function route(starts, goals, walls, W, H, occ, tag, grp) {
     return c;
   };
   const meets = s => mates.some(m => (Math.abs(m.a[0] - s.at[0]) < 0.06 && Math.abs(m.a[1] - s.at[1]) < 0.06) || (Math.abs(m.b[0] - s.at[0]) < 0.06 && Math.abs(m.b[1] - s.at[1]) < 0.06));
-  const stub = s => s.cost + (meets(s) ? -45 : 0) + stepCost(s.at[0], s.at[1], s.out[0], s.out[1]) - Math.abs(s.at[0] - s.out[0]) - Math.abs(s.at[1] - s.out[1]); // leaving a box on another arrow's line; a relative's meeting point is the place to join
+  const stub = s => s.joined ? s.cost : s.cost + (meets(s) ? -45 : 0) + stepCost(s.at[0], s.at[1], s.out[0], s.out[1]) - Math.abs(s.at[0] - s.out[0]) - Math.abs(s.at[1] - s.out[1]); // leaving a box on another arrow's line; a relative's meeting point is the place to join
   const heading = (f, t) => (t[1] < f[1] ? 0 : t[1] > f[1] ? 2 : t[0] < f[0] ? 3 : 1); // 0 up, 1 right, 2 down, 3 left
   const goalAt = new Map();
   goals.forEach((g, gi) => { const i = xi.get(r1(g.out[0])), j = yi.get(r1(g.out[1])); if (i != null && j != null && ok(g.out[0], g.out[1])) { const k = i * NY + j; if (!goalAt.has(k)) goalAt.set(k, []); goalAt.get(k).push(gi); } });
@@ -132,6 +154,7 @@ function route(starts, goals, walls, W, H, occ, tag, grp) {
   };
   starts.forEach((s, si) => {
     const i = xi.get(r1(s.out[0])), j = yi.get(r1(s.out[1])); if (i == null || j == null || !ok(s.out[0], s.out[1])) return;
+    if (s.joined) { for (let h = 0; h < 4; h++) push(stub(s), (i * NY + j) * 4 + h, -1 - si); return; }
     push(stub(s), (i * NY + j) * 4 + heading(s.at, s.out), -1 - si);
   });
   const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
@@ -140,7 +163,7 @@ function route(starts, goals, walls, W, H, occ, tag, grp) {
     const [c, k] = pop(); if (c > dist.get(k)) continue;
     if (k >= DONE) { goal = goals[k - DONE]; end = prev.get(k); break; }
     const cell = k >> 2, d = k & 3, i = Math.floor(cell / NY), j = cell % NY;
-    for (const gi of goalAt.get(cell) || []) push(c + stub(goals[gi]) + (heading(goals[gi].out, goals[gi].at) === d ? 0 : BEND), DONE + gi, k);
+    for (const gi of goalAt.get(cell) || []) push(c + stub(goals[gi]) + (goals[gi].joined || heading(goals[gi].out, goals[gi].at) === d ? 0 : BEND), DONE + gi, k);
     for (let nd = 0; nd < 4; nd++) {
       if ((nd + 2) % 4 === d) continue;
       const ni = i + DX[nd], nj = j + DY[nd]; if (ni < 0 || nj < 0 || ni >= xs.length || nj >= NY) continue;
@@ -149,11 +172,12 @@ function route(starts, goals, walls, W, H, occ, tag, grp) {
     }
   }
   if (end == null) return null;
+  let from = null;
   const pts = [goal.at, goal.out];
   for (let k = end; ;) {
     const cell = k >> 2; pts.push([xs[Math.floor(cell / NY)], ys[cell % NY]]);
     const p = prev.get(k);
-    if (p < 0) { pts.push(starts[-1 - p].at); break; }
+    if (p < 0) { from = starts[-1 - p]; pts.push(from.at); break; }
     k = p;
   }
   pts.reverse();
@@ -164,7 +188,15 @@ function route(starts, goals, walls, W, H, occ, tag, grp) {
     if (c && ((Math.abs(a[0] - b[0]) < 0.05 && Math.abs(b[0] - c[0]) < 0.05) || (Math.abs(a[1] - b[1]) < 0.05 && Math.abs(b[1] - c[1]) < 0.05))) continue;
     out.push(b);
   }
-  return out.map(p => [r1(p[0]), r1(p[1])]);
+  const whole = [...((from && from.head) || []), ...out, ...(goal.tail || [])].map(p => [r1(p[0]), r1(p[1])]);
+  const tidy = []; // no repeated points, and no point in the middle of a straight run
+  for (let i = 0; i < whole.length; i++) {
+    const a = tidy[tidy.length - 1], b = whole[i], c = whole[i + 1];
+    if (a && far(a, b) < 0.06) continue;
+    if (a && c && ((Math.abs(a[0] - b[0]) < 0.06 && Math.abs(b[0] - c[0]) < 0.06) || (Math.abs(a[1] - b[1]) < 0.06 && Math.abs(b[1] - c[1]) < 0.06))) continue;
+    tidy.push(b);
+  }
+  return tidy;
 }
 const occupy = (occ, pts, tag, grp) => { for (let i = 0; i < pts.length - 1; i++) occ.push({ a: pts[i], b: pts[i + 1], tag, grp }); };
 
@@ -416,9 +448,24 @@ export async function layout(model) {
     }
     // arrows this file's own router draws: every arrow of a stated container, and the loop-backs of a folded flow
     const apart = w => { const a = centre(w.a), b = centre(w.b); return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]); };
+    // A box with three or more arrows of one style coming in (or going out) is a hub: those arrows are drawn as one tree.
+    // Only where this file's own router draws the arrows (a level whose boxes are placed by hand, and the loop-backs
+    // of a folded flow): the layout engine has already ordered a hub's arrows on the levels it draws.
+    const size = new Map();
+    for (const w of wanted) if (w.grp) for (const g of w.grp) size.set(g, (size.get(g) || 0) + 1);
+    const joinOf = w => {
+      if (!w.grp) return null;
+      const into = [], outof = [];
+      for (const o of wanted) {
+        if (o === w || !o.grp || !nd.routes[o.id]) continue;
+        if (o.grp[0] === w.grp[0] && size.get(w.grp[0]) >= 3) into.push(nd.routes[o.id].p);
+        if (o.grp[1] === w.grp[1] && size.get(w.grp[1]) >= 3) outof.push(nd.routes[o.id].p);
+      }
+      return into.length || outof.length ? { into, outof } : null;
+    };
     for (const w of [...wanted].sort((p, q) => apart(p) - apart(q))) { // short arrows first: they get the straight lines
       if (nd.routes[w.id]) continue;
-      const p = route(exits(w.a, 'o:' + w.b.id, [centre(w.b)], W), exits(w.b, 'i:' + w.a.id, [centre(w.a)], W), nd.children, W, H, nd.occ, w.id, w.grp);
+      const p = route(exits(w.a, 'o:' + w.b.id, [centre(w.b)], W), exits(w.b, 'i:' + w.a.id, [centre(w.a)], W), nd.children, W, H, nd.occ, w.id, w.grp, joinOf(w));
       if (p) { nd.routes[w.id] = { p }; occupy(nd.occ, p, w.id, w.grp); }
     }
 
@@ -517,8 +564,10 @@ export async function layout(model) {
       return clash(np, L.occ, d.tag, fam) <= base;
     };
     const cands = [{ u: toIn(p[k]), cost: free(p[k]) ? 0 : 500, pts: null }];
-    // a straight line in the picture above stays straight; a line with a bend can slide its last leg along the side
-    if (r && Math.abs(p[k] - q[k]) < 0.05) {
+    // a straight line in the picture above stays straight; a line with a bend can slide its last leg along the side,
+    // unless it is part of a hub's tree: its relatives end on the same point, and the tree would come apart
+    const twin = Object.entries(L.routes).some(([id, o]) => id !== d.tag && o.p !== pts && Math.abs(o.p[d.atStart ? 0 : o.p.length - 1][0] - p[0]) + Math.abs(o.p[d.atStart ? 0 : o.p.length - 1][1] - p[1]) < 0.2);
+    if (r && !twin && Math.abs(p[k] - q[k]) < 0.05 && Math.abs(q[1 - k] - r[1 - k]) < 0.05) {
       const kid = d.kids[0], klo = k ? kid.y : kid.x, kspan = k ? kid.h : kid.w;
       for (const o of X.ports) if (o.sd === sd && kin(o)) { // where a relative already meets this side is the best place of all
         if (Math.abs(o.v - p[k]) < 1) { cands[0].cost = -70; continue; }

@@ -27,7 +27,7 @@ const mq = matchMedia('(prefers-color-scheme:dark)');
 let C;
 function theme() {
   C = mq.matches
-    ? { bg: '#121215', box: '#1f1f25', panel: '#17171b', ink: '#ececf1', muted: '#9c9ca8', line: [122, 122, 136], hi: [236, 236, 241], tint: 0.17, pill: '#2a2a33' }
+    ? { dark: true, bg: '#121215', box: '#1f1f25', panel: '#17171b', ink: '#ececf1', muted: '#9c9ca8', line: [158, 158, 174], hi: [236, 236, 241], tint: 0.17, pill: '#2a2a33' }
     : { bg: '#f5f4f1', box: '#ffffff', panel: '#fbfbf9', ink: '#1c1c1f', muted: '#6a6a72', line: [120, 120, 132], hi: [28, 28, 31], tint: 0.09, pill: '#ffffff' };
 }
 theme(); mq.addEventListener('change', () => { theme(); req(); });
@@ -263,7 +263,8 @@ function draw() {
     // an arrow that exists only because of a tag is drawn in the tag's colour, so a proposed link stands out
     const tg = es.every(e => e.tag) ? es[0].tag : null;
     if (tg) st = { ...st, c: STATES[tg].c, dash: st.dash || [7, 5], w: Math.max(st.w, 1.7) };
-    let col = st.c || C.line; const labels = new Set(es.map(e => e.label).filter(Boolean));
+    let col = st.c || C.line; if (C.dark && st.c) col = col.map(v => Math.round(v + (255 - v) * 0.24)); // on a dark page a saturated blue or purple line is hard to see: lift it
+    const labels = new Set(es.map(e => e.label).filter(Boolean));
     const worst = es.filter(e => STY[e.style] === st).length;
     const text = es.length === 1 ? es[0].label : (labels.size === 1 && es.every(e => e.label) ? `${[...labels][0]} ×${es.length}` : `${es.length} links`)
       + (st.label && st.c ? (worst === es.length ? ` · all ${st.label}` : ` · ${worst} ${st.label}`) : '');
@@ -271,7 +272,7 @@ function draw() {
     const quiet = only.size && !es.some(e => only.has(e.style)) ? 0.06 : 1; // not one of the styles picked in the legend
     if (lit) { near.add(a); near.add(b); col = col.map((v, i) => Math.round(v + (C.hi[i] - v) * (st.c ? 0.25 : 0.6))); } // a lit line is brighter as well as thicker; a plain grey one most of all
     const la = quiet < 1 ? 0 : g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
-    ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.16 : 1); ctx.lineWidth = st.w + (lit ? 1.3 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
+    ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.3 : 1); ctx.lineWidth = st.w + (lit ? 1.3 : 0) + (C.dark ? 0.35 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
     if (a === b) { // self loop, drawn over the top edge
       const x0 = a.sx + a.sw * 0.5, x1 = a.sx + a.sw * 0.82, y = a.sy, hgt = clamp(a.sh * 0.3, 8, 22);
       ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0, y - hgt); ctx.lineTo(x1, y - hgt); ctx.lineTo(x1, y - 2); ctx.stroke();
