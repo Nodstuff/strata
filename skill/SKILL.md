@@ -170,6 +170,17 @@ nodes:
 
 Do not reach for this by default. For most levels the automatic arrangement is good and costs nothing to maintain; state the arrangement where the picture has a shape people expect.
 
+The one level where it usually pays is a top level made of groups. Left alone, a chain of groups becomes a strip. Stack who uses the system on the left, put the system in the middle, and stack what it depends on to the right, and the level fills the screen:
+
+```yaml
+nodes:
+  - {id: people, label: People, group: true, nodes: [...]}
+  - {id: clients, label: Clients, group: true, place: below people, nodes: [...]}
+  - {id: system, label: Server, group: true, place: right of clients, nodes: [...]}
+  - {id: cloud, label: AWS account, group: true, place: right of system, nodes: [...]}
+  - {id: outside, label: Outside, group: true, place: above cloud, nodes: [...]}
+```
+
 ## How to structure a diagram
 
 - **Think in levels, not pages.** Each box with `nodes` is one screen. Aim for 4 to 10 boxes per level; `check` warns past 16. If a level is crowded, group related boxes into a new box.
@@ -194,6 +205,6 @@ Do not reach for this by default. For most levels the automatic arrangement is g
 - View only. People who open the HTML can zoom, pan, dive, toggle states and follow references; they cannot edit.
 - A route never passes behind a box and each arrow meets a container at its own point. By default strata does not rearrange a container to suit what is outside it, so an arrow can still take a long way to the side its target sits on; `--twice` rearranges, within limits.
 - `strata facts` reads Go only.
-- A top level that is a chain of groups comes out as a wide strip with small boxes. Fewer, larger groups at the top help; so does putting people and outside services in one group each.
+- A top level that is a chain of groups (people, clients, the system, what it depends on) comes out on its own as a wide strip or a tall column using half the screen. State its arrangement instead: see "Stating the arrangement".
 - Arrow labels only show once you are zoomed in far enough for them to fit the room the layout kept for them, so a top level can show no labels.
 - A decision diamond's arrows attach to its bounding box, so they can stop slightly short of the point.
