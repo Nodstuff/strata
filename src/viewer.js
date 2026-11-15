@@ -36,6 +36,7 @@ theme(); mq.addEventListener('change', () => { theme(); req(); });
 const cv = $('cv'), ctx = cv.getContext('2d');
 let vw = 0, vh = 0, dpr = 1, k = 1, tx = 0, ty = 0, kfit = 1, raf = 0, anim = null;
 const off = new Set(); // tags switched off
+let ready = false, pinned = false; // ready: the page has opened and the address may follow the view; pinned: a box was clicked and stays lit
 const only = new Set(); // arrow styles picked in the legend: when any are picked, every other arrow goes faint
 let taAt = 0;
 const ta = {}, lit = {}; // how far each tag has faded in (0 to 1), and when it was last switched on
@@ -49,8 +50,9 @@ function target(nd) {
   const top = 56, bot = 44;
   // a container keeps a gutter free on every side: the labels of arrows that leave it sit there, clear of its boxes
   const gx = nd === root ? vw * 0.04 : gutter(), gy = nd === root ? (vh - top - bot) * 0.04 : 34;
-  const kk = Math.min((vw - 2 * gx) / nd.aw, (vh - top - bot - 2 * gy) / nd.ah);
-  return { k: kk, tx: vw / 2 - (nd.ax + nd.aw / 2) * kk, ty: top + (vh - top - bot) / 2 - (nd.ay + nd.ah / 2) * kk };
+  const side = pinned && hot && vw > 1000 ? 316 : 0; // the open panel's width: the picture fits beside it, not under it
+  const kk = Math.min((vw - side - 2 * gx) / nd.aw, (vh - top - bot - 2 * gy) / nd.ah);
+  return { k: kk, tx: (vw - side) / 2 - (nd.ax + nd.aw / 2) * kk, ty: top + (vh - top - bot) / 2 - (nd.ay + nd.ah / 2) * kk };
 }
 function fit(nd, instant) {
   const m = target(nd);
@@ -187,6 +189,7 @@ function crossPath(a, b, gkey) {
 }
 
 let pills = [], focus = root, lastFocus = null, hot = null; // hot: the box being pointed at
+const still = matchMedia('(prefers-reduced-motion:reduce)').matches;
 function draw() {
   raf = 0;
   if (anim) anim();
@@ -250,7 +253,8 @@ function draw() {
   while (here.group && here !== root) here = here.parent;
   const inHere = x => x.path.includes(here), touches = x => x === hot || x.path.includes(hot);
   const near = new Set(); // the boxes at the other end of a lit arrow
-  if (hot && !(hot.vis > 0)) hot = null;
+  let moving = false;
+  if (hot && !(hot.vis > 0) && !anim) { hot = null; if (pinned) { pinned = false; panel(); } }
   for (const g of agg.values()) {
     const a = g.a, b = g.b, es = [...g.es].map(i => E[i]);
     if (!a.on && !b.on) continue;
@@ -296,7 +300,12 @@ function draw() {
       ctx.lineTo(pts[n - 1][0], pts[n - 1][1]);
       // a line at full strength is cased in the background colour, so where two cross one plainly passes over the other
       if (ctx.globalAlpha > 0.85) { const dd = ctx.getLineDash(), w0 = ctx.lineWidth; ctx.setLineDash([]); ctx.strokeStyle = C.panel; ctx.lineWidth = w0 + 5; ctx.stroke(); ctx.strokeStyle = rgba(col, 1); ctx.lineWidth = w0; ctx.setLineDash(dd); }
-      ctx.stroke(); ctx.setLineDash([]);
+      ctx.stroke();
+      if (lit && !still) { // the lit box's arrows move in the direction they point
+        ctx.setLineDash([2, 13]); ctx.lineDashOffset = -(T / 26) % 15; ctx.strokeStyle = C.ink; ctx.lineWidth += 0.4; ctx.globalAlpha *= 0.85; ctx.stroke();
+        ctx.lineDashOffset = 0; ctx.strokeStyle = rgba(col, 1); moving = true;
+      }
+      ctx.setLineDash([]);
       arrows++;
       if (b.on && !st.noHead) { const L = seg(n - 2) || 1; arrowHead(pts[n - 1][0], pts[n - 1][1], (pts[n - 1][0] - pts[n - 2][0]) / L, (pts[n - 1][1] - pts[n - 2][1]) / L, clamp(Math.min(b.sw, b.sh) * 0.09, 4, 8)); }
       if (g.alpha < 0.6) continue; // mid-fade arrows stay as faint lines: no label, no stub
@@ -415,10 +424,10 @@ function draw() {
     go = false;
     for (const c of focus.children || []) if (c.children && c.vis > 0 && c.t >= 0.5 && c.sx < vw / 2 && c.sy < vh / 2 && c.sx + c.sw > vw / 2 && c.sy + c.sh > vh / 2) { focus = c; go = true; break; }
   }
-  if (focus !== lastFocus) { lastFocus = focus; crumbs(); }
+  if (focus !== lastFocus) { lastFocus = focus; crumbs(); remember(); }
   const z = k / kfit;
   $('stats').textContent = `${boxes} of ${all.length - 1} boxes · ${arrows} of ${E.length} arrows · ${(performance.now() - T).toFixed(1)} ms · ${z < 10 ? z.toFixed(1) : Math.round(z)}×`;
-  if (anim) req();
+  if (anim || moving) req();
 }
 
 function label(nd) {
@@ -469,13 +478,18 @@ function label(nd) {
 
 // ---------- chrome around the canvas ----------
 function crumbs() {
-  const el = $('crumbs'); el.textContent = '';
-  const skip = Math.max(0, focus.path.length - 3); // deep paths keep the last three levels
-  focus.path.forEach((nd, i) => {
-    if (i < skip) return;
-    if (i) { const s = document.createElement('span'); s.textContent = i === skip ? '… ›' : '›'; el.appendChild(s); }
-    const b = document.createElement('button'); b.textContent = nd.title; b.onclick = () => fit(nd); el.appendChild(b);
-  });
+  const el = $('crumbs'), lg = $('legend');
+  el.style.maxWidth = Math.max(160, vw - (lg ? lg.offsetWidth : 0) - 44) + 'px'; // never under the legend
+  for (let keep = 3; keep >= 1; keep--) { // deep paths keep the last three levels, or fewer if that is all there is room for
+    el.textContent = '';
+    const skip = Math.max(0, focus.path.length - keep);
+    focus.path.forEach((nd, i) => {
+      if (i < skip) return;
+      if (i) { const s = document.createElement('span'); s.textContent = i === skip ? '… ›' : '›'; el.appendChild(s); }
+      const b = document.createElement('button'); b.textContent = nd.title; b.onclick = () => fit(nd); el.appendChild(b);
+    });
+    if (el.scrollWidth <= el.clientWidth + 1) break;
+  }
 }
 const legend = $('legend');
 const picks = {};
@@ -483,7 +497,7 @@ function pick(name, on) { // a legend entry is a filter: pick one or more arrow 
   if (!picks[name]) return;
   if (on) only.add(name); else only.delete(name);
   for (const [n, b] of Object.entries(picks)) { b.classList.toggle('sel', only.has(n)); b.classList.toggle('dim', only.size > 0 && !only.has(n)); b.setAttribute('aria-pressed', only.has(n)); }
-  req();
+  req(); remember();
 }
 for (const [name, s] of Object.entries(STY)) if (s.label && s.c) {
   const b = picks[name] = document.createElement('button'), i = document.createElement('i');
@@ -496,6 +510,7 @@ function setState(name, shown) {
   if (!STATES[name]) return;
   if (shown) { if (off.has(name)) lit[name] = performance.now(); off.delete(name); } else off.add(name);
   const b = toggles[name]; b.classList.toggle('off', !shown); b.setAttribute('aria-pressed', shown); b.title = `${STATES[name].label}: ${shown ? 'shown, click to hide' : 'hidden, click to show'} (n next, p back)`; req();
+  if (ready) { panel(); remember(); }
 }
 for (const [name, s] of Object.entries(STATES)) {
   const b = toggles[name] = document.createElement('button');
@@ -503,7 +518,76 @@ for (const [name, s] of Object.entries(STATES)) {
   b.append(document.createElement('b'), s.label); b.onclick = () => setState(name, off.has(name));
   legend.appendChild(b); setState(name, s.shown !== false); if (s.shown === false) ta[name] = 0;
 }
+// stepping through the tags in the order the file declares them: forward switches the next one on, back the last one off
+function step(d) {
+  const names = Object.keys(STATES), x = d > 0 ? names.find(s => off.has(s)) : names.filter(s => !off.has(s)).pop();
+  if (x) setState(x, d > 0);
+}
+if (Object.keys(STATES).length > 1) for (const [t, d, tip] of [['‹', -1, 'Back one step (p)'], ['›', 1, 'Next step (n)']]) {
+  const b = document.createElement('button'); b.className = 'step'; b.textContent = t; b.title = tip; b.onclick = () => step(d); legend.appendChild(b);
+}
 if (!legend.children.length) legend.remove();
+
+// ---------- the panel for a pinned box: what it is, and everything it talks to ----------
+const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
+const info = $('info');
+const live = e => !((e.a.st && off.has(e.a.st)) || (e.b.st && off.has(e.b.st)) || (e.tag && off.has(e.tag)) || (e.until && !off.has(e.until)) || (e.a.ut && !off.has(e.a.ut)) || (e.b.ut && !off.has(e.b.ut)));
+const unpin = () => { hot = null; pinned = false; panel(); req(); };
+const pin = nd => { if (nd.st && off.has(nd.st)) setState(nd.st, true); hot = nd; pinned = true; panel(); fit(nd.parent || root); };
+function panel() {
+  info.textContent = ''; info.hidden = !(pinned && hot); remember();
+  if (info.hidden) return;
+  const me = hot, head = el('div', 'ih'); head.append(el('b', null, me.title)); head.append(el('span', null, me.sub || ''));
+  const x = el('button', 'ix', '×'); x.title = 'Close (Esc)'; x.onclick = unpin; head.append(x); info.append(head);
+  for (const line of me.detail || (me.note ? me.note.split('\n') : [])) info.append(el('p', null, line));
+  if (me.children) { const b = el('button', 'io', `Open · ${me.children.length} inside`); b.onclick = () => { unpin(); jump(me); }; info.append(b); }
+  const inside = n => n === me || n.path.includes(me);
+  for (const [title, out] of [['Goes to', true], ['Comes from', false]]) {
+    const rows = new Map();
+    for (const e of E) {
+      if (!live(e) || inside(e.a) === inside(e.b) || inside(e.a) !== out) continue;
+      const other = out ? e.b : e.a; (rows.get(other) || rows.set(other, []).get(other)).push(e);
+    }
+    if (!rows.size) continue;
+    info.append(el('h4', null, `${title} · ${rows.size}`));
+    for (const [other, es] of rows) {
+      const b = el('button', 'ir'), st = es.reduce((w, e) => (STY[e.style].rank > w.rank ? STY[e.style] : w), { rank: -1 }), dot = el('i');
+      dot.style.background = st.c ? rgba(st.c, 1) : 'var(--muted)';
+      const said = [...new Set(es.map(e => e.label).filter(Boolean))].join(' · ');
+      b.append(dot, el('span', 'in', relName(other, me)), el('span', 'il', [said, st.label && st.c ? st.label : ''].filter(Boolean).join(' — ')));
+      b.title = 'Go there'; b.onclick = () => pin(other); info.append(b);
+    }
+  }
+}
+
+// ---------- find a box by name ----------
+const find = $('find'), findIn = find.querySelector('input'), findOut = find.querySelector('div');
+function search(open) { find.hidden = !open; findIn.value = ''; findOut.textContent = ''; if (open) findIn.focus(); else findIn.blur(); }
+findIn.addEventListener('input', () => {
+  const q = findIn.value.trim().toLowerCase(); findOut.textContent = ''; if (!q) return;
+  const first = n => (n.title.toLowerCase().startsWith(q) ? 0 : n.title.toLowerCase().includes(q) ? 1 : 2);
+  all.filter(n => n !== root && !n.note && `${n.title} ${n.sub || ''} ${n.id}`.toLowerCase().includes(q))
+    .sort((a, b) => first(a) - first(b) || a.path.length - b.path.length).slice(0, 9).forEach(n => {
+      const b = el('button'); b.append(el('b', null, n.title), el('span', null, n.path.slice(1, -1).map(x => x.title).join(' › ') || 'top level'));
+      b.onclick = () => { search(false); pin(n); }; findOut.append(b);
+    });
+});
+findIn.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Escape') search(false);
+  else if (e.key === 'Enter' && findOut.firstChild) findOut.firstChild.click();
+});
+
+// ---------- the address keeps up with the view, so a copied link opens on the same picture ----------
+function remember() {
+  if (!ready) return;
+  const q = [], show = [], hide = [];
+  if (focus !== root) q.push('at=' + focus.id);
+  for (const [n, s] of Object.entries(STATES)) { const on = !off.has(n), def = s.shown !== false; if (on && !def) show.push(n); if (!on && def) hide.push(n); }
+  if (show.length) q.push('show=' + show.join(',')); if (hide.length) q.push('hide=' + hide.join(','));
+  if (pinned && hot) q.push('hot=' + hot.id); if (only.size) q.push('only=' + [...only].join(','));
+  try { history.replaceState(null, '', q.length ? '#' + q.join('&') : location.pathname + location.search); } catch (e) { /* a page opened from a file may refuse: the view still works */ }
+}
 
 // ---------- input ----------
 function hit(x, y) {
@@ -522,7 +606,8 @@ cv.addEventListener('wheel', e => {
 }, { passive: false });
 const ptrs = new Map(); let moved = 0;
 cv.addEventListener('pointerdown', e => {
-  cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  try { cv.setPointerCapture(e.pointerId); } catch (x) { /* a pointer the browser no longer tracks */ }
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
   if (ptrs.size === 1) moved = 0;
   anim = null; cv.classList.add('drag');
 });
@@ -532,7 +617,6 @@ const point = (x, y) => { // what is under the pointer: an edge label's box, or 
   if (h !== hot) { hot = h; cv.style.cursor = p || (h && (h.children || h.ref)) ? 'pointer' : ''; req(); }
 };
 cv.addEventListener('pointerleave', () => { if (hot && !pinned) { hot = null; req(); } });
-let pinned = false;
 cv.addEventListener('pointermove', e => {
   const p = ptrs.get(e.pointerId); if (!p) { if (!pinned && e.pointerType !== 'touch') point(e.clientX, e.clientY); return; }
   const nx = e.clientX, ny = e.clientY;
@@ -554,19 +638,21 @@ const up = e => {
     const nd = hit(e.clientX, e.clientY);
     if (nd.ref && !nd.children) return jump(byId[nd.ref]); // a reference: one click goes to the real thing
     // a click (or a tap) pins a box: its arrows stay lit until it, or empty space, is clicked
-    const h = nd !== root && nd.t < 0.5 && !nd.note ? nd : null;
+    const h = nd !== root && nd.t < 0.5 ? nd : null;
     if (h && !(pinned && hot === h)) { hot = h; pinned = true; } else { hot = null; pinned = false; }
+    panel();
+    if (pinned && vw > 1000 && h.sx + h.sw > vw - 330) { const x0 = tx, x1 = tx - (h.sx + h.sw - (vw - 340)), s0 = performance.now(); anim = () => { const s = Math.min(1, (performance.now() - s0) / 260); tx = lerp(x0, x1, smooth(s)); if (s >= 1) anim = null; }; } // slide the box out from under the panel
     req();
   }
 };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-cv.addEventListener('dblclick', e => { const nd = hit(e.clientX, e.clientY); if (!(nd.ref && !nd.children)) { hot = null; pinned = false; jump(nd); } });
+cv.addEventListener('dblclick', e => { const nd = hit(e.clientX, e.clientY); if (!(nd.ref && !nd.children)) { hot = null; pinned = false; panel(); jump(nd); } });
 addEventListener('keydown', e => {
-  // n and p step through the tags in the order the file declares them: n switches the next one on, p the last one off
-  const names = Object.keys(STATES);
-  if (e.key === 'n' || e.key === ']') { const x = names.find(s => off.has(s)); if (x) setState(x, true); return; }
-  if (e.key === 'p' || e.key === '[') { const x = names.filter(s => !off.has(s)).pop(); if (x) setState(x, false); return; }
-  if (e.key === 'Escape') { if (pinned || only.size) { hot = null; pinned = false; for (const n of [...only]) pick(n, false); req(); } else fit(focus.parent || root); }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === '/') { e.preventDefault(); search(true); return; }
+  if (e.key === 'n' || e.key === ']') return step(1);
+  if (e.key === 'p' || e.key === '[') return step(-1);
+  if (e.key === 'Escape') { if (!find.hidden) search(false); else if (pinned || only.size) { for (const n of [...only]) pick(n, false); unpin(); } else fit(focus.parent || root); }
   else if (e.key === '0' || e.key === 'f') fit(root);
   else if (e.key === '+' || e.key === '=') zoomAt(vw / 2, vh / 2, 1.35);
   else if (e.key === '-') zoomAt(vw / 2, vh / 2, 1 / 1.35);
@@ -578,10 +664,10 @@ function fromHash(instant) {
   const q = new URLSearchParams(location.hash.slice(1));
   for (const s of (q.get('hide') || '').split(',')) if (s) setState(s, false);
   for (const s of (q.get('show') || '').split(',')) if (s) setState(s, true);
-  hot = byId[q.get('hot')] || null; pinned = !!hot; // #hot=<id> opens with that box's arrows lit
+  hot = byId[q.get('hot')] || null; pinned = !!hot; panel(); // #hot=<id> opens with that box pinned
   for (const s of (q.get('only') || '').split(',')) if (s) pick(s, true); // #only=<style,style> opens with those arrow styles picked
   const at = byId[q.get('at')]; if (at) fit(at.children ? at : at.parent, instant);
 }
-fromHash(true); addEventListener('hashchange', () => fromHash(false));
+fromHash(true); ready = true; addEventListener('hashchange', () => fromHash(false));
 window.strata = { fit, byId, zoomAt, setState, state: () => ({ zoom: k / kfit, focus: focus.id, pills: pills.map(p => p.node.id) }) };
 })();
