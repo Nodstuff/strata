@@ -132,6 +132,52 @@ export function busy(model, maxBoxes = 16, maxArrows = 30) {
   return out;
 }
 
+// How clean the arrows are, in numbers, so a change to the router can be judged: per level and in
+// total, how often two different arrows cross, how many bends there are, how much line is drawn
+// (in widths of that level), and how many pieces are not at right angles.
+export function quality(model) {
+  const levels = [], total = { crossings: 0, bends: 0, length: 0, slanted: 0, lines: 0 };
+  walk(model.root, nd => {
+    if (!nd.children) return;
+    const raw = new Map(); let bends = 0, len = 0, slanted = 0, lines = 0;
+    const take = (p, tag) => {
+      if (!p) return; lines++;
+      const seen = raw.get(tag) || raw.set(tag, { runs: new Map(), loose: [], corners: new Set() }).get(tag);
+      for (let i = 1; i < p.length - 1; i++) seen.corners.add(p[i].join());
+      for (let i = 0; i < p.length - 1; i++) {
+        const a = p[i], b = p[i + 1], flat = Math.abs(a[1] - b[1]) <= 0.15, up = Math.abs(a[0] - b[0]) <= 0.15;
+        if (!flat && !up) { slanted++; seen.loose.push([a, b]); continue; }
+        const k = flat ? 0 : 1, key = (flat ? 'h' : 'v') + Math.round(a[1 - k] * 10);
+        (seen.runs.get(key) || seen.runs.set(key, []).get(key)).push([Math.min(a[k], b[k]), Math.max(a[k], b[k]), a[1 - k], k]);
+      }
+    };
+    for (const [id, r] of Object.entries(nd.routes || {})) take(r.p, id);
+    for (const [g, x] of Object.entries(nd.xr || {})) for (const r of Object.values(x.r || {})) take(r, 'x:' + g);
+    // boxes that share one arrow out of this level share a trunk: a stretch drawn twice counts once
+    const segs = [];
+    for (const [tag, seen] of raw) {
+      bends += seen.corners.size;
+      for (const [a, b] of seen.loose) { segs.push([a, b, tag]); len += Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]); }
+      for (const runs of seen.runs.values()) {
+        runs.sort((p, q) => p[0] - q[0]); let cur = null;
+        const flush = () => { if (!cur) return; len += cur[1] - cur[0]; segs.push(cur[3] === 0 ? [[cur[0], cur[2]], [cur[1], cur[2]], tag] : [[cur[2], cur[0]], [cur[2], cur[1]], tag]); };
+        for (const r of runs) { if (cur && r[0] <= cur[1] + 0.05) cur[1] = Math.max(cur[1], r[1]); else { flush(); cur = [...r]; } }
+        flush();
+      }
+    }
+    let crossings = 0;
+    const o = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+    for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
+      const [a, b, t] = segs[i], [c, d, u] = segs[j];
+      if (t !== u && o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0) crossings++;
+    }
+    const row = { id: nd.id, lines, crossings, bends, length: Math.round(len / nd.iw * 10) / 10, slanted };
+    levels.push(row); for (const k of Object.keys(total)) total[k] += row[k];
+  });
+  total.length = Math.round(total.length * 10) / 10;
+  return { total, levels };
+}
+
 export function outline(model) { // a text picture of the tree, for people and for Claude to check its own work
   const lines = [];
   let boxes = 0, depth = 0;

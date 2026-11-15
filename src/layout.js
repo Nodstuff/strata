@@ -94,8 +94,9 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   const rest = (occ || []).filter(s => s.tag !== tag), others = rest.filter(s => !kin(s)), mates = rest.filter(kin);
   const hor = others.filter(s => s.a[1] === s.b[1]), ver = others.filter(s => s.a[0] === s.b[0]);
   const mhor = mates.filter(s => s.a[1] === s.b[1]), mver = mates.filter(s => s.a[0] === s.b[0]);
-  const xs = axis([CLEAR, W - CLEAR, ...ends.map(s => s.out[0]), ...walls.flatMap(w => lanes(w.x, w.x + w.w)), ...mver.map(s => s.a[0])], W);
-  const ys = axis([CLEAR, H - CLEAR, ...ends.map(s => s.out[1]), ...walls.flatMap(w => lanes(w.y, w.y + w.h)), ...mhor.map(s => s.a[1])], H);
+  const kinLines = [...((join && join.into) || []), ...((join && join.outof) || [])].flat();
+  const xs = axis([CLEAR, W - CLEAR, ...ends.map(s => s.out[0]), ...walls.flatMap(w => lanes(w.x, w.x + w.w)), ...mver.map(s => s.a[0]), ...kinLines.map(p => p[0])], W);
+  const ys = axis([CLEAR, H - CLEAR, ...ends.map(s => s.out[1]), ...walls.flatMap(w => lanes(w.y, w.y + w.h)), ...mhor.map(s => s.a[1]), ...kinLines.map(p => p[1])], H);
   const xi = new Map(xs.map((v, i) => [v, i])), yi = new Map(ys.map((v, i) => [v, i])), NY = ys.length;
   // A hub's arrows form a tree. An arrow into a box may end on a relative's line and ride it the
   // rest of the way in; an arrow out of a box may begin on a relative's line. Not on the stretch
@@ -425,6 +426,17 @@ export async function layout(model) {
       }
     }
 
+    // The layout engine can return a line that stops short of its box, or is not at right angles, when
+    // it folds a flow. Such a line is thrown away and drawn by this file's own router.
+    {
+      const at = new Map(res.children.map(c => [c.id, c])), on = (q, c) => c && q.x >= c.x - 2 && q.x <= c.x + c.width + 2 && q.y >= c.y - 2 && q.y <= c.y + c.height + 2;
+      for (const e of res.edges || []) {
+        const p = pointsOf(e), w = wanted.find(q => q.id === e.id); if (!p || !w || rerouted.includes(e.id)) continue;
+        const square = p.every((q, i) => !i || Math.abs(q.x - p[i - 1].x) < 0.15 || Math.abs(q.y - p[i - 1].y) < 0.15);
+        if (!square || !on(p[0], at.get(w.a.id)) || !on(p[p.length - 1], at.get(w.b.id))) rerouted.push(e.id);
+      }
+    }
+
     // the inner space: content, padding, a header band, and room so closed containers stay closed at fit
     const closable = nd.children.filter(c => c.children && !c.group);
     let W = Math.max(res.width + 2 * SIDE, ...closable.map(c => c.w / FIT));
@@ -590,11 +602,14 @@ export async function layout(model) {
     if (pick.pts) { pts.length = 0; pts.push(...pick.pts); reoccupy(L, d.tag); }
     X.ports.push({ sd, v: pts[d.atStart ? 0 : pts.length - 1][k], fam });
     g.port = portAt(sd, pick.u, X.iw, X.ih).map(r1);
-    for (const kid of d.kids) {
-      const goal = portGoal(sd, pick.u, X.iw, X.ih);
-      const rt = kid === d.kids[0] ? first : route(exits(kid, d.group, [goal.out], X.iw), [goal], X.children, X.iw, X.ih, X.occ, d.group, fam);
+    // Several boxes in X may share this arrow. Their lines form one tree to the port: the nearest box
+    // is routed first, and each later one may end on a line already drawn and ride it the rest of the way.
+    const goal = portGoal(sd, pick.u, X.iw, X.ih), gap = kid => { const c = centre(kid); return Math.abs(c[0] - goal.at[0]) + Math.abs(c[1] - goal.at[1]); };
+    const drawn = [];
+    for (const kid of [d.kids[0], ...d.kids.slice(1).sort((p, q) => gap(p) - gap(q))]) {
+      const rt = kid === d.kids[0] ? first : route(exits(kid, d.group, [goal.out], X.iw), [goal], X.children, X.iw, X.ih, X.occ, d.group, fam, drawn.length && !process.env.STRATA_NO_TREE ? { into: drawn } : null);
       g.r[kid.id] = rt;
-      if (rt) occupy(X.occ, rt, d.group, fam); else unrouted++;
+      if (rt) { occupy(X.occ, rt, d.group, fam); drawn.push(rt); } else unrouted++;
     }
   };
   for (const queue = [model.root]; queue.length;) {

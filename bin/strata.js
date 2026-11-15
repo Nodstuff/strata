@@ -10,7 +10,7 @@ import { join, resolve, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { load } from '../src/model.js';
 import { layout } from '../src/layout.js';
-import { html, outline, legibility, busy } from '../src/build.js';
+import { html, outline, legibility, busy, quality } from '../src/build.js';
 
 const [cmd, file, ...rest] = process.argv.slice(2);
 // strata gen go <dir> --experimental [--only internal/x] [-o out.yaml]   EXPERIMENTAL: a strata file of a Go module's packages and imports
@@ -29,7 +29,7 @@ if (cmd === 'gen') {
   process.exit(0);
 }
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
-const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
+const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [--stats] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;
@@ -38,7 +38,11 @@ catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem
 for (const w of [...model.warnings, ...legibility(model), ...busy(model)]) console.error('warning: ' + w);
 const stem = basename(file).replace(/\.ya?ml$/, '');
 
-if (cmd === 'check') {
+if (cmd === 'check' && rest.includes('--stats')) { // how clean the arrows are, per level: for judging a change to the router
+  const ql = quality(model);
+  for (const r of ql.levels.filter(r => r.lines).sort((p, q) => q.crossings - p.crossings)) console.log(`${r.id.padEnd(22)} ${String(r.lines).padStart(4)} lines ${String(r.crossings).padStart(4)} crossings ${String(r.bends).padStart(4)} bends ${String(r.length).padStart(7)} length${r.slanted ? '  ' + r.slanted + ' slanted' : ''}`);
+  console.log(`total · ${ql.total.lines} lines · ${ql.total.crossings} crossings · ${ql.total.bends} bends · ${ql.total.length} length · ${ql.total.slanted} slanted`);
+} else if (cmd === 'check') {
   const o = outline(model);
   console.log(o.text);
   console.log(`\nok · ${o.boxes} boxes · ${o.arrows} arrows · ${o.depth} levels deep`);
