@@ -82,29 +82,37 @@ const centre = b => [b.x + b.w / 2, b.y + b.h / 2];
 const portAt = (sd, u, W, H) => (sd === 0 ? [u, 0] : sd === 1 ? [u, H] : sd === 2 ? [0, u] : [W, u]);
 const portGoal = (sd, u, W, H, cost = 0) => ({ at: portAt(sd, u, W, H), cost, out: sd === 0 ? [u, CLEAR] : sd === 1 ? [u, H - CLEAR] : sd === 2 ? [CLEAR, u] : [W - CLEAR, u] });
 const sideOfPort = (pt, W, H) => { const d = [pt[1], H - pt[1], pt[0], W - pt[0]].map(Math.abs); return d.indexOf(Math.min(...d)); };
-function route(starts, goals, walls, W, H, occ, tag) {
+function route(starts, goals, walls, W, H, occ, tag, grp) {
   const inside = (x, y, w) => x > w.x - CLEAR + 1 && x < w.x + w.w + CLEAR - 1 && y > w.y - CLEAR + 1 && y < w.y + w.h + CLEAR - 1;
   const ok = (x, y) => !walls.some(w => inside(x, y, w));
   const lanes = (lo, hi) => [0, 1, 2].flatMap(k => [lo - CLEAR - k * LANE, hi + CLEAR + k * LANE]);
   const axis = (vals, max) => [...new Set(vals.map(r1))].filter(v => v >= CLEAR - 1 && v <= max - CLEAR + 1).sort((p, q) => p - q);
   const ends = [...starts, ...goals];
-  const xs = axis([CLEAR, W - CLEAR, ...ends.map(s => s.out[0]), ...walls.flatMap(w => lanes(w.x, w.x + w.w))], W);
-  const ys = axis([CLEAR, H - CLEAR, ...ends.map(s => s.out[1]), ...walls.flatMap(w => lanes(w.y, w.y + w.h))], H);
+  // Arrows of one family (same style, into the same box or out of the same box) may share a line:
+  // running along a relative is cheaper than a lane of its own, so they gather into one trunk near the box.
+  const kin = s => grp && s.grp && s.grp.some(g => grp.includes(g));
+  const rest = (occ || []).filter(s => s.tag !== tag), others = rest.filter(s => !kin(s)), mates = rest.filter(kin);
+  const hor = others.filter(s => s.a[1] === s.b[1]), ver = others.filter(s => s.a[0] === s.b[0]);
+  const mhor = mates.filter(s => s.a[1] === s.b[1]), mver = mates.filter(s => s.a[0] === s.b[0]);
+  const xs = axis([CLEAR, W - CLEAR, ...ends.map(s => s.out[0]), ...walls.flatMap(w => lanes(w.x, w.x + w.w)), ...mver.map(s => s.a[0])], W);
+  const ys = axis([CLEAR, H - CLEAR, ...ends.map(s => s.out[1]), ...walls.flatMap(w => lanes(w.y, w.y + w.h)), ...mhor.map(s => s.a[1])], H);
   const xi = new Map(xs.map((v, i) => [v, i])), yi = new Map(ys.map((v, i) => [v, i])), NY = ys.length;
-  const others = (occ || []).filter(s => s.tag !== tag), hor = others.filter(s => s.a[1] === s.b[1]), ver = others.filter(s => s.a[0] === s.b[0]);
   const lap = (a0, a1, b0, b1) => Math.max(0, Math.min(Math.max(a0, a1), Math.max(b0, b1)) - Math.max(Math.min(a0, a1), Math.min(b0, b1)));
   const stepCost = (x0, y0, x1, y1) => { // length, plus riding on or crossing another arrow's line
     let c = Math.abs(x1 - x0) + Math.abs(y1 - y0);
     if (y0 === y1) {
       for (const s of hor) if (Math.abs(s.a[1] - y0) < LANE - 2) c += 4 * lap(x0, x1, s.a[0], s.b[0]);
       for (const s of ver) if (s.a[0] > Math.min(x0, x1) && s.a[0] < Math.max(x0, x1) && y0 > Math.min(s.a[1], s.b[1]) && y0 < Math.max(s.a[1], s.b[1])) c += 10;
+      let on = 0; for (const s of mhor) if (Math.abs(s.a[1] - y0) < 0.06) on = Math.max(on, lap(x0, x1, s.a[0], s.b[0])); c -= 0.62 * on;
     } else {
       for (const s of ver) if (Math.abs(s.a[0] - x0) < LANE - 2) c += 4 * lap(y0, y1, s.a[1], s.b[1]);
       for (const s of hor) if (s.a[1] > Math.min(y0, y1) && s.a[1] < Math.max(y0, y1) && x0 > Math.min(s.a[0], s.b[0]) && x0 < Math.max(s.a[0], s.b[0])) c += 10;
+      let on = 0; for (const s of mver) if (Math.abs(s.a[0] - x0) < 0.06) on = Math.max(on, lap(y0, y1, s.a[1], s.b[1])); c -= 0.62 * on;
     }
     return c;
   };
-  const stub = s => s.cost + stepCost(s.at[0], s.at[1], s.out[0], s.out[1]) - Math.abs(s.at[0] - s.out[0]) - Math.abs(s.at[1] - s.out[1]); // leaving a box on another arrow's line
+  const meets = s => mates.some(m => (Math.abs(m.a[0] - s.at[0]) < 0.06 && Math.abs(m.a[1] - s.at[1]) < 0.06) || (Math.abs(m.b[0] - s.at[0]) < 0.06 && Math.abs(m.b[1] - s.at[1]) < 0.06));
+  const stub = s => s.cost + (meets(s) ? -45 : 0) + stepCost(s.at[0], s.at[1], s.out[0], s.out[1]) - Math.abs(s.at[0] - s.out[0]) - Math.abs(s.at[1] - s.out[1]); // leaving a box on another arrow's line; a relative's meeting point is the place to join
   const heading = (f, t) => (t[1] < f[1] ? 0 : t[1] > f[1] ? 2 : t[0] < f[0] ? 3 : 1); // 0 up, 1 right, 2 down, 3 left
   const goalAt = new Map();
   goals.forEach((g, gi) => { const i = xi.get(r1(g.out[0])), j = yi.get(r1(g.out[1])); if (i != null && j != null && ok(g.out[0], g.out[1])) { const k = i * NY + j; if (!goalAt.has(k)) goalAt.set(k, []); goalAt.get(k).push(gi); } });
@@ -158,7 +166,7 @@ function route(starts, goals, walls, W, H, occ, tag) {
   }
   return out.map(p => [r1(p[0]), r1(p[1])]);
 }
-const occupy = (occ, pts, tag) => { for (let i = 0; i < pts.length - 1; i++) occ.push({ a: pts[i], b: pts[i + 1], tag }); };
+const occupy = (occ, pts, tag, grp) => { for (let i = 0; i < pts.length - 1; i++) occ.push({ a: pts[i], b: pts[i + 1], tag, grp }); };
 
 // ---------- stated placement: the file says where each box sits; this works out only the distances ----------
 // A gap is a minimum, never an exact distance, and everything ends up as close together as the
@@ -222,7 +230,7 @@ export async function layout(model) {
     while (cur && parentOf.get(cur) !== container) cur = parentOf.get(cur);
     return cur || null;
   };
-  const problems = [];
+  const problems = [], famOf = new Map(); // container id | route id -> the families that route belongs to
 
   // An arrow that ends inside a closed-looking container still has a box it is really for. Which
   // one, per container and per arrow group ("o:<other end>" going out, "i:<other end>" coming in).
@@ -272,8 +280,11 @@ export async function layout(model) {
       const lab = text => (text ? [{ text, width: text.length * 6.2 + 12, height: 16 }] : []);
       const merged = p.items.length > 1 || !p.items[0].direct ? 'NN links' : model.edges[p.items[0].i].label; // a merged arrow's text is decided on screen; hold room for it
       // several arrows declared between the same two boxes (a decision's Yes and No) each keep their own route
+      // the family an arrow belongs to, for sharing a trunk: the style it will be drawn in, and the box at either end
+      const sty = p.items.map(it => model.edges[it.i].style).reduce((w, n) => ((model.styles[n].rank ?? 0) > (model.styles[w].rank ?? 0) ? n : w));
+      const grp = [`i:${p.b.id}:${sty}`, `o:${p.a.id}:${sty}`];
       if (p.items.length > 1 && p.items.every(it => it.direct)) for (const it of p.items) wanted.push({ id: key + '#' + it.i, a: p.a, b: p.b, labels: lab(model.edges[it.i].label) });
-      else wanted.push({ id: key, a: p.a, b: p.b, labels: lab(merged) });
+      else { wanted.push({ id: key, a: p.a, b: p.b, labels: lab(merged), grp }); famOf.set(nd.id + '|' + key, grp); }
     }
     const order = new Map(nd.children.map((c, i) => [c.id, i]));
     const stated = nd.children.some(c => c.place);
@@ -401,14 +412,14 @@ export async function layout(model) {
       const l = e.labels && e.labels[0];
       nd.routes[e.id] = { p: p.map(q => [r1(q.x + ox), r1(q.y + oy)]) };
       if (l && l.x != null) nd.routes[e.id].l = [r1(l.x + l.width / 2 + ox), r1(l.y + l.height / 2 + oy)];
-      occupy(nd.occ, nd.routes[e.id].p, e.id);
+      occupy(nd.occ, nd.routes[e.id].p, e.id, (wanted.find(q => q.id === e.id) || {}).grp);
     }
     // arrows this file's own router draws: every arrow of a stated container, and the loop-backs of a folded flow
     const apart = w => { const a = centre(w.a), b = centre(w.b); return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]); };
     for (const w of [...wanted].sort((p, q) => apart(p) - apart(q))) { // short arrows first: they get the straight lines
       if (nd.routes[w.id]) continue;
-      const p = route(exits(w.a, 'o:' + w.b.id, [centre(w.b)], W), exits(w.b, 'i:' + w.a.id, [centre(w.a)], W), nd.children, W, H, nd.occ, w.id);
-      if (p) { nd.routes[w.id] = { p }; occupy(nd.occ, p, w.id); }
+      const p = route(exits(w.a, 'o:' + w.b.id, [centre(w.b)], W), exits(w.b, 'i:' + w.a.id, [centre(w.a)], W), nd.children, W, H, nd.occ, w.id, w.grp);
+      if (p) { nd.routes[w.id] = { p }; occupy(nd.occ, p, w.id, w.grp); }
     }
 
     // An arrow that goes a long way round gets a second opinion from this file's own router, which
@@ -418,9 +429,21 @@ export async function layout(model) {
       const old = nd.routes[w.id]; if (!old) continue;
       const a = centre(w.a), b = centre(w.b), direct = Math.max(0, Math.abs(a[0] - b[0]) - (w.a.w + w.b.w) / 2) + Math.max(0, Math.abs(a[1] - b[1]) - (w.a.h + w.b.h) / 2);
       if (weight(old.p) < 1.6 * direct + 120) continue;
-      const p = route(exits(w.a, 'o:' + w.b.id, [b], W), exits(w.b, 'i:' + w.a.id, [a], W), nd.children, W, H, nd.occ, w.id);
+      const p = route(exits(w.a, 'o:' + w.b.id, [b], W), exits(w.b, 'i:' + w.a.id, [a], W), nd.children, W, H, nd.occ, w.id, w.grp);
       if (!p || weight(p) > 0.8 * weight(old.p)) continue;
-      nd.routes[w.id] = { p }; nd.occ = nd.occ.filter(s => s.tag !== w.id); occupy(nd.occ, p, w.id);
+      nd.routes[w.id] = { p }; nd.occ = nd.occ.filter(s => s.tag !== w.id); occupy(nd.occ, p, w.id, w.grp);
+    }
+    // An arrow that shares a trunk is labelled on the longest stretch that is its own.
+    for (const w of wanted) {
+      const r = nd.routes[w.id]; if (!r || r.l || !w.grp) continue;
+      const mates = nd.occ.filter(s => s.tag !== w.id && s.grp && s.grp.some(g => w.grp.includes(g)));
+      let shared = false, best = null;
+      for (let i = 0; i < r.p.length - 1; i++) {
+        const a = r.p[i], b = r.p[i + 1], k = Math.abs(a[1] - b[1]) < 0.05 ? 0 : 1, len = Math.abs(a[k] - b[k]);
+        const on = mates.some(s => Math.abs(s.a[1 - k] - s.b[1 - k]) < 0.05 && Math.abs(s.a[1 - k] - a[1 - k]) < 0.06 && Math.min(Math.max(a[k], b[k]), Math.max(s.a[k], s.b[k])) - Math.max(Math.min(a[k], b[k]), Math.min(s.a[k], s.b[k])) > 1);
+        if (on) shared = true; else if (!best || len > best[2]) best = [r1((a[0] + b[0]) / 2), r1((a[1] + b[1]) / 2), r1(len)];
+      }
+      if (shared && best) r.m = best;
     }
     // the box this container is drawn as inside its parent
     if (nd.group) { nd.w = W; nd.h = H; }                    // a group is a frame at its parent's own scale
@@ -456,10 +479,10 @@ export async function layout(model) {
 
   const segsOf = pts => pts.slice(0, -1).map((p, i) => [p, pts[i + 1]]);
   const boxHit = (a, b, w, m) => Math.max(a[0], b[0]) > w.x - m && Math.min(a[0], b[0]) < w.x + w.w + m && Math.max(a[1], b[1]) > w.y - m && Math.min(a[1], b[1]) < w.y + w.h + m;
-  const clash = (pts, occ, tag) => { // how often a line crosses, or rides along, the other arrows in its container
+  const clash = (pts, occ, tag, fam) => { // how often a line crosses, or rides along, the other arrows in its container
     let n = 0;
     for (const [a, b] of segsOf(pts)) for (const s of occ) {
-      if (s.tag === tag) continue;
+      if (s.tag === tag || (fam && s.grp && s.grp.some(g => fam.includes(g)))) continue;
       const h1 = Math.abs(a[1] - b[1]) < 0.05, h2 = Math.abs(s.a[1] - s.b[1]) < 0.05;
       const lo = (p, q, k) => Math.min(p[k], q[k]), hi = (p, q, k) => Math.max(p[k], q[k]);
       if (h1 === h2) { const k = h1 ? 0 : 1; if (Math.abs(a[1 - k] - s.a[1 - k]) < LANE - 2 && Math.min(hi(a, b, k), hi(s.a, s.b, k)) - Math.max(lo(a, b, k), lo(s.a, s.b, k)) > 1) n++; }
@@ -484,17 +507,24 @@ export async function layout(model) {
     const sd = sideOfPort([p[0] - X.x, p[1] - X.y], X.w, X.h), k = sd < 2 ? 0 : 1; // k: the axis along the side
     const lo = k ? X.y : X.x, span = k ? X.h : X.w, inner = k ? X.ih : X.iw;
     const toIn = v => Math.max(2 * CLEAR, Math.min(inner - 2 * CLEAR, (v - lo) / span * inner)), toOut = u => r1(lo + u / inner * span);
-    const taken = (X.ports ||= []).filter(o => o.sd === sd).map(o => o.v), sep = Math.max(4.5, Math.min(0.04 * span, 30));
+    // arrows of one family may meet the container at the same place: one trunk, which parts inside
+    const fam = d.pts ? famOf.get(L.id + '|' + d.tag) : null, kin = o => fam && o.fam && o.fam.some(g => fam.includes(g));
+    const taken = (X.ports ||= []).filter(o => o.sd === sd && !kin(o)).map(o => o.v), sep = Math.max(4.5, Math.min(0.04 * span, 30));
     const free = v => taken.every(t => Math.abs(t - v) >= sep - 0.01);
-    const base = clash(pts, L.occ, d.tag);
+    const base = clash(pts, L.occ, d.tag, fam);
     const fine = np => {
       for (const [a, b] of segsOf(np)) for (const w of L.children) if (boxHit(a, b, w, w === X || w === d.other ? -1 : 3)) return false;
-      return clash(np, L.occ, d.tag) <= base;
+      return clash(np, L.occ, d.tag, fam) <= base;
     };
     const cands = [{ u: toIn(p[k]), cost: free(p[k]) ? 0 : 500, pts: null }];
     // a straight line in the picture above stays straight; a line with a bend can slide its last leg along the side
     if (r && Math.abs(p[k] - q[k]) < 0.05) {
       const kid = d.kids[0], klo = k ? kid.y : kid.x, kspan = k ? kid.h : kid.w;
+      for (const o of X.ports) if (o.sd === sd && kin(o)) { // where a relative already meets this side is the best place of all
+        if (Math.abs(o.v - p[k]) < 1) { cands[0].cost = -70; continue; }
+        const np = pts.map(x => [...x]); np[e][k] = o.v; np[e + st][k] = o.v;
+        if (fine(np)) cands.push({ u: toIn(o.v), cost: -70, pts: np });
+      }
       const us = [klo + kspan / 2, klo + kspan / 4, klo + kspan * 0.75]; // in line with the box, or with the lane beside any box
       for (const w of X.children) us.push((k ? w.y : w.x) - CLEAR, (k ? w.y + w.h : w.x + w.w) + CLEAR);
       for (const u0 of us) {
@@ -506,16 +536,16 @@ export async function layout(model) {
     }
     const goals = cands.map(c => portGoal(sd, c.u, X.iw, X.ih, c.cost));
     const g = (X.xr ||= {})[d.group] = { port: null, r: {} };
-    let first = route(exits(d.kids[0], d.group, goals.map(t => t.out), X.iw), goals, X.children, X.iw, X.ih, X.occ, d.group), pick = cands[0];
+    let first = route(exits(d.kids[0], d.group, goals.map(t => t.out), X.iw), goals, X.children, X.iw, X.ih, X.occ, d.group, fam), pick = cands[0];
     if (first) { const end = first[first.length - 1]; pick = cands.find(c => { const a = portAt(sd, c.u, X.iw, X.ih); return Math.abs(a[0] - end[0]) + Math.abs(a[1] - end[1]) < 0.2; }) || cands[0]; }
     if (pick.pts) { pts.length = 0; pts.push(...pick.pts); reoccupy(L, d.tag); }
-    X.ports.push({ sd, v: pts[d.atStart ? 0 : pts.length - 1][k] });
+    X.ports.push({ sd, v: pts[d.atStart ? 0 : pts.length - 1][k], fam });
     g.port = portAt(sd, pick.u, X.iw, X.ih).map(r1);
     for (const kid of d.kids) {
       const goal = portGoal(sd, pick.u, X.iw, X.ih);
-      const rt = kid === d.kids[0] ? first : route(exits(kid, d.group, [goal.out], X.iw), [goal], X.children, X.iw, X.ih, X.occ, d.group);
+      const rt = kid === d.kids[0] ? first : route(exits(kid, d.group, [goal.out], X.iw), [goal], X.children, X.iw, X.ih, X.occ, d.group, fam);
       g.r[kid.id] = rt;
-      if (rt) occupy(X.occ, rt, d.group); else unrouted++;
+      if (rt) occupy(X.occ, rt, d.group, fam); else unrouted++;
     }
   };
   for (const queue = [model.root]; queue.length;) {

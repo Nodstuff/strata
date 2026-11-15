@@ -183,7 +183,7 @@ function crossPath(a, b, gkey) {
   if (!pieces(a, L, 'o:' + B.id, up) || !pieces(b, L, 'i:' + A.id, down)) return null;
   const u = L.sw / L.iw, all = up.concat(route.p.map(p => [L.sx + p[0] * u, L.sy + p[1] * u]), down.reverse()), pts = [all[0]];
   for (let i = 1; i < all.length; i++) { const q = pts[pts.length - 1]; if (Math.abs(q[0] - all[i][0]) + Math.abs(q[1] - all[i][1]) > 0.3) pts.push(all[i]); }
-  return pts.length > 1 ? { pts, L, l: route.l } : null;
+  return pts.length > 1 ? { pts, L, l: route.l, m: route.m } : null;
 }
 
 let pills = [], focus = root, lastFocus = null, hot = null; // hot: the box being pointed at
@@ -267,7 +267,7 @@ function draw() {
     const quiet = only.size && !es.some(e => only.has(e.style)) ? 0.06 : 1; // not one of the styles picked in the legend
     if (lit) { near.add(a); near.add(b); }
     const la = quiet < 1 ? 0 : g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
-    ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.34 : 1); ctx.lineWidth = st.w + (lit ? 0.9 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
+    ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.16 : 1); ctx.lineWidth = st.w + (lit ? 0.9 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
     if (a === b) { // self loop, drawn over the top edge
       const x0 = a.sx + a.sw * 0.5, x1 = a.sx + a.sw * 0.82, y = a.sy, hgt = clamp(a.sh * 0.3, 8, 22);
       ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0, y - hgt); ctx.lineTo(x1, y - hgt); ctx.lineTo(x1, y - 2); ctx.stroke();
@@ -310,6 +310,7 @@ function draw() {
       } else if (text) {
         const pu = cp.L.sw / cp.L.iw, l = cp.l && [cp.L.sx + cp.l[0] * pu, cp.L.sy + cp.l[1] * pu];
         if (l && l[0] > 20 && l[0] < vw - 20 && l[1] > 56 && l[1] < vh - 50) { if (pu >= 0.66) midLabels.push({ x: l[0], y: l[1], len: 1e9, text, alpha: la, lit, col: st.c, f: Math.min(10.5, 10.5 * pu) }); } // the spot the layout kept free for it
+        else if (cp.m) midLabels.push({ x: cp.L.sx + cp.m[0] * pu, y: cp.L.sy + cp.m[1] * pu, len: cp.m[2] * pu, text, alpha: la, lit, col: st.c }); // its own stretch, off the shared trunk
         else { let best = 0, bi = 0; for (let i = 0; i < n - 1; i++) if (seg(i) > best) { best = seg(i); bi = i; } midLabels.push({ x: (pts[bi][0] + pts[bi + 1][0]) / 2, y: (pts[bi][1] + pts[bi + 1][1]) / 2, len: best, text, alpha: la, lit, col: st.c }); }
       }
       continue;
