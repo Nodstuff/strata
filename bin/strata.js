@@ -10,17 +10,17 @@ import { join, resolve, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { load } from '../src/model.js';
 import { layout } from '../src/layout.js';
-import { html, outline, legibility } from '../src/build.js';
+import { html, outline, legibility, busy } from '../src/build.js';
 
 const [cmd, file, ...rest] = process.argv.slice(2);
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
-const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [-o out] [--at id] [--hide tag] [--show tag] [--size WxH]'); process.exit(2); };
+const usage = () => { console.error('usage: strata check|build|shot <file.yaml> [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;
 try { model = await layout(load(await readFile(file, 'utf8'))); }
 catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem(s)' : 'error'}\n${e.message}`); process.exit(1); }
-for (const w of [...model.warnings, ...legibility(model)]) console.error('warning: ' + w);
+for (const w of [...model.warnings, ...legibility(model), ...busy(model)]) console.error('warning: ' + w);
 const stem = basename(file).replace(/\.ya?ml$/, '');
 
 if (cmd === 'check') {
@@ -34,13 +34,13 @@ if (cmd === 'check') {
 } else {
   const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(p => p && existsSync(p));
   if (!chrome) { console.error('shot needs Chrome or Chromium; set CHROME to its path'); process.exit(1); }
-  const at = opt('--at'), hide = opt('--hide'), show = opt('--show'), hot = opt('--hot'), size = (opt('--size') || '1600x1000').replace('x', ',');
+  const at = opt('--at'), hide = opt('--hide'), show = opt('--show'), hot = opt('--hot'), only = opt('--only'), size = (opt('--size') || '1600x1000').replace('x', ',');
   if (at && !JSON.stringify(model.root).includes(`"id":"${at}"`)) { console.error(`--at ${at}: no node has that id`); process.exit(1); }
   const out = resolve(opt('-o') || `${stem}${at ? '-' + at : ''}.png`);
   const dir = await mkdtemp(join(tmpdir(), 'strata-'));
   const page = join(dir, 'page.html');
   await writeFile(page, await html(model));
-  const hash = new URLSearchParams({ ...(at ? { at } : {}), ...(hide ? { hide } : {}), ...(show ? { show } : {}), ...(hot ? { hot } : {}) }).toString();
+  const hash = new URLSearchParams({ ...(at ? { at } : {}), ...(hide ? { hide } : {}), ...(show ? { show } : {}), ...(hot ? { hot } : {}), ...(only ? { only } : {}) }).toString();
   await new Promise((ok, fail) => execFile(chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1', `--window-size=${size}`, '--virtual-time-budget=2000', `--screenshot=${out}`, pathToFileURL(page).href + (hash ? '#' + hash : '')],
     { timeout: 60000 }, err => (err ? fail(err) : ok())));
   await rm(dir, { recursive: true, force: true });

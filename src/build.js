@@ -32,11 +32,13 @@ canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none;cursor:gr
 canvas.drag{cursor:grabbing}
 .hud{position:fixed;background:var(--chip);border:1px solid var(--chipb);border-radius:9px;padding:6px 10px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);user-select:none;-webkit-user-select:none}
 #crumbs{top:12px;left:12px;display:flex;gap:2px;align-items:center;max-width:calc(100vw - 48px);overflow:hidden;white-space:nowrap}
-#crumbs button,.toggle{all:unset;cursor:pointer;padding:2px 6px;border-radius:6px}
-#crumbs button:hover,.toggle:hover{background:var(--chipb)}
+#crumbs button,.toggle,.sty{all:unset;cursor:pointer;padding:2px 6px;border-radius:6px}
+#crumbs button:hover,.toggle:hover,.sty:hover{background:var(--chipb)}
+.sty{transition:opacity .2s}.sty.sel{color:var(--ink);background:var(--chipb);font-weight:600}.sty.dim{opacity:.45}
+.sty:focus-visible{outline:2px solid var(--muted);outline-offset:2px}
 #crumbs button:last-of-type{font-weight:600}
 #crumbs span{color:var(--muted)}
-#legend{top:12px;right:12px;display:flex;gap:12px;align-items:center;color:var(--muted);font-size:12px}
+#legend{top:12px;right:12px;display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
 #legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
 .toggle{color:var(--ink);border:1px solid;border-radius:999px;padding:2px 10px 2px 8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;transition:opacity .2s,background .2s}
 .toggle b{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--tc);background:var(--tc);transition:background .2s}
@@ -45,7 +47,7 @@ canvas.drag{cursor:grabbing}
 .toggle:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 #hint{bottom:12px;left:12px;color:var(--muted)}
 #stats{bottom:12px;right:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-@media (max-width:1100px){#legend span{display:none}}
+@media (max-width:1100px){#legend .sty{display:none}}
 @media (max-width:900px){#hint{display:none}}
 </style>
 </head>
@@ -53,7 +55,7 @@ canvas.drag{cursor:grabbing}
 <canvas id="cv"></canvas>
 <div id="crumbs" class="hud"></div>
 <div id="legend" class="hud"></div>
-<div id="hint" class="hud">Scroll or pinch to zoom · drag to pan · double-click a box to dive in · Esc goes up · 0 fits all</div>
+<div id="hint" class="hud">Scroll or pinch to zoom · drag to pan · click a box to light its arrows · double-click to dive in · Esc goes up · 0 fits all</div>
 <div id="stats" class="hud"></div>
 <script>window.STRATA=${data}</script>
 <script>
@@ -68,15 +70,43 @@ ${viewer}
 // viewer shrinks text to fit its box, so a crowded level stays correct but becomes illegible.
 export function legibility(model, vw = 1440, vh = 800) {
   const out = [];
-  walk(model.root, nd => {
+  walk(model.root, (nd, parent) => {
     if (!nd.children) return;
-    const k = Math.min(vw * 0.92 / nd.iw, (vh - 100) * 0.92 / nd.ih), small = [];
+    // the same fit the viewer makes: a gutter on each side of a container, a thin margin round the top level
+    const top = !parent, gx = top ? vw * 0.04 : Math.max(70, Math.min(170, vw * 0.1)), gy = top ? (vh - 100) * 0.04 : 34;
+    const k = Math.min((vw - 2 * gx) / nd.iw, (vh - 100 - 2 * gy) / nd.ih), small = [];
     for (const c of nd.children) {
       const lines = c.label.split('\n'), rows = lines.length * 1.2 + (c.sub ? 0.85 : 0) + (c.children ? 1 : 0);
       const px = Math.min(22, c.w * k * (c.shape === 'diamond' ? 0.6 : 0.86) / (Math.max(...lines.map(l => l.length)) * 0.6), c.h * k * (c.shape === 'diamond' ? 0.5 : 0.7) / rows);
       if (px < 7.5) small.push(c.id);
     }
     if (small.length) out.push(`when ${nd.id === '__root' ? 'the top level' : '"' + nd.id + '"'} fills a ${vw}x${vh} window, ${small.length} of its ${nd.children.length} titles are too small to read (${small.join(', ')}): use shorter labels or fewer boxes at this level`);
+  });
+  return out;
+}
+
+// Levels that will look busy: many boxes, or many separate arrows between them. Says which boxes
+// carry the most arrows, since grouping those (or the things they all talk to) is the usual cure.
+export function busy(model, maxBoxes = 16, maxArrows = 30) {
+  const path = new Map();
+  walk(model.root, (nd, parent) => path.set(nd.id, parent ? [...path.get(parent.id), nd] : [nd]));
+  const per = new Map(); // container -> { pairs: Set of "childA>childB", deg: Map child -> count }
+  for (const e of model.edges) {
+    const pa = path.get(e.a), pb = path.get(e.b); let i = 0;
+    while (i < pa.length && i < pb.length && pa[i] === pb[i]) i++;
+    if (i >= pa.length || i >= pb.length) continue; // one end is inside the other
+    const at = pa[i - 1], a = pa[i], b = pb[i];
+    let s = per.get(at); if (!s) per.set(at, s = { pairs: new Set(), deg: new Map() });
+    const key = a.id + '>' + b.id; if (s.pairs.has(key)) continue;
+    s.pairs.add(key); for (const x of [a, b]) s.deg.set(x, (s.deg.get(x) || 0) + 1);
+  }
+  const out = [];
+  walk(model.root, nd => {
+    if (!nd.children) return;
+    const s = per.get(nd), arrows = s ? s.pairs.size : 0, boxes = nd.children.filter(c => !c.note).length;
+    if (boxes <= maxBoxes && arrows <= maxArrows) return;
+    const hubs = s ? [...s.deg].sort((p, q) => q[1] - p[1]).slice(0, 3).map(([x, n]) => `${x.id} (${n})`).join(', ') : '';
+    out.push(`${nd.id === '__root' ? 'the top level' : '"' + nd.id + '"'} is busy: ${boxes} boxes and ${arrows} arrows on one level${hubs ? `; most arrows: ${hubs}` : ''}. Put boxes that talk to the same things inside one box, or move detail a level down`);
   });
   return out;
 }

@@ -36,6 +36,7 @@ theme(); mq.addEventListener('change', () => { theme(); req(); });
 const cv = $('cv'), ctx = cv.getContext('2d');
 let vw = 0, vh = 0, dpr = 1, k = 1, tx = 0, ty = 0, kfit = 1, raf = 0, anim = null;
 const off = new Set(); // tags switched off
+const only = new Set(); // arrow styles picked in the legend: when any are picked, every other arrow goes faint
 let taAt = 0;
 const ta = {}, lit = {}; // how far each tag has faded in (0 to 1), and when it was last switched on
 for (const n of Object.keys(STATES)) { ta[n] = 1; lit[n] = -1e9; }
@@ -248,6 +249,7 @@ function draw() {
   }
   while (here.group && here !== root) here = here.parent;
   const inHere = x => x.path.includes(here), touches = x => x === hot || x.path.includes(hot);
+  const near = new Set(); // the boxes at the other end of a lit arrow
   if (hot && !(hot.vis > 0)) hot = null;
   for (const g of agg.values()) {
     const a = g.a, b = g.b, es = [...g.es].map(i => E[i]);
@@ -262,8 +264,10 @@ function draw() {
     const text = es.length === 1 ? es[0].label : (labels.size === 1 && es.every(e => e.label) ? `${[...labels][0]} ×${es.length}` : `${es.length} links`)
       + (st.label && st.c ? (worst === es.length ? ` · all ${st.label}` : ` · ${worst} ${st.label}`) : '');
     const lit = hot && (touches(a) || touches(b)), away = !(inHere(a) && inHere(b));
-    const la = g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
-    ctx.globalAlpha = g.alpha * (hot ? (lit ? 1 : 0.1) : away ? 0.34 : 1); ctx.lineWidth = st.w + (lit ? 0.9 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
+    const quiet = only.size && !es.some(e => only.has(e.style)) ? 0.06 : 1; // not one of the styles picked in the legend
+    if (lit) { near.add(a); near.add(b); }
+    const la = quiet < 1 ? 0 : g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
+    ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.34 : 1); ctx.lineWidth = st.w + (lit ? 0.9 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
     if (a === b) { // self loop, drawn over the top edge
       const x0 = a.sx + a.sw * 0.5, x1 = a.sx + a.sw * 0.82, y = a.sy, hgt = clamp(a.sh * 0.3, 8, 22);
       ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0, y - hgt); ctx.lineTo(x1, y - hgt); ctx.lineTo(x1, y - 2); ctx.stroke();
@@ -289,7 +293,10 @@ function draw() {
       const n = pts.length, seg = i => Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
       ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
       for (let i = 1; i < n - 1; i++) ctx.arcTo(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], Math.min(6, seg(i - 1) / 2, seg(i) / 2));
-      ctx.lineTo(pts[n - 1][0], pts[n - 1][1]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.lineTo(pts[n - 1][0], pts[n - 1][1]);
+      // a line at full strength is cased in the background colour, so where two cross one plainly passes over the other
+      if (ctx.globalAlpha > 0.85) { const dd = ctx.getLineDash(), w0 = ctx.lineWidth; ctx.setLineDash([]); ctx.strokeStyle = C.panel; ctx.lineWidth = w0 + 5; ctx.stroke(); ctx.strokeStyle = rgba(col, 1); ctx.lineWidth = w0; ctx.setLineDash(dd); }
+      ctx.stroke(); ctx.setLineDash([]);
       arrows++;
       if (b.on && !st.noHead) { const L = seg(n - 2) || 1; arrowHead(pts[n - 1][0], pts[n - 1][1], (pts[n - 1][0] - pts[n - 2][0]) / L, (pts[n - 1][1] - pts[n - 2][1]) / L, clamp(Math.min(b.sw, b.sh) * 0.09, 4, 8)); }
       if (g.alpha < 0.6) continue; // mid-fade arrows stay as faint lines: no label, no stub
@@ -343,9 +350,12 @@ function draw() {
   for (const nd of all) {
     if (!nd.on || nd.sw < 3 || nd === root) continue;
     boxes++;
+    // a pinned box stands out: boxes its arrows do not reach step back
+    const vis0 = nd.vis, aside = pinned && hot && nd.t < 0.5 && nd !== hot && !near.has(nd) && !nd.path.includes(hot) && !hot.path.includes(nd);
+    if (aside) nd.vis *= 0.32;
     if (nd.t < 1) {
       const c = colOf(nd);
-      ctx.globalAlpha = nd.vis * (1 - nd.t); ctx.lineWidth = 1.3; ctx.strokeStyle = rgba(c, 0.9);
+      ctx.globalAlpha = nd.vis * (1 - nd.t); ctx.lineWidth = pinned && nd === hot ? 2.6 : 1.3; ctx.strokeStyle = rgba(c, 0.9);
       if (nd.shape === 'actor') { // stick figure in the top of the box
         const cx = nd.sx + nd.sw / 2, r = Math.min(nd.sw * 0.2, nd.sh * 0.1), y0 = nd.sy + r + 1, y1 = nd.sy + nd.sh * 0.58;
         ctx.beginPath(); ctx.arc(cx, y0, r, 0, Math.PI * 2); ctx.fillStyle = rgba(c, 0.45); ctx.fill(); ctx.stroke();
@@ -361,6 +371,7 @@ function draw() {
       }
     }
     label(nd);
+    nd.vis = vis0;
   }
 
   // pass 4: off-screen stubs, on top of everything, clickable
@@ -466,10 +477,18 @@ function crumbs() {
   });
 }
 const legend = $('legend');
-for (const s of Object.values(STY)) if (s.label && s.c) {
-  const span = document.createElement('span'), i = document.createElement('i');
+const picks = {};
+function pick(name, on) { // a legend entry is a filter: pick one or more arrow styles and the rest go faint
+  if (!picks[name]) return;
+  if (on) only.add(name); else only.delete(name);
+  for (const [n, b] of Object.entries(picks)) { b.classList.toggle('sel', only.has(n)); b.classList.toggle('dim', only.size > 0 && !only.has(n)); b.setAttribute('aria-pressed', only.has(n)); }
+  req();
+}
+for (const [name, s] of Object.entries(STY)) if (s.label && s.c) {
+  const b = picks[name] = document.createElement('button'), i = document.createElement('i');
+  b.className = 'sty'; b.title = `Show only ${s.label} arrows (click again to clear)`;
   i.style.borderColor = rgba(s.c, 1); i.style.borderTopStyle = !s.dash ? 'solid' : s.dash[0] < 4 ? 'dotted' : 'dashed';
-  span.append(i, s.label); legend.appendChild(span);
+  b.append(i, s.label); b.onclick = () => pick(name, !only.has(name)); legend.appendChild(b);
 }
 const toggles = {};
 function setState(name, shown) {
@@ -532,17 +551,21 @@ const up = e => {
     const p = pills.find(p => Math.abs(e.clientX - p.x) <= p.w / 2 && Math.abs(e.clientY - p.y) <= p.h / 2);
     if (p) return jump(p.node);
     const nd = hit(e.clientX, e.clientY);
-    if (nd.ref && !nd.children) jump(byId[nd.ref]); // a reference: one click goes to the real thing
+    if (nd.ref && !nd.children) return jump(byId[nd.ref]); // a reference: one click goes to the real thing
+    // a click (or a tap) pins a box: its arrows stay lit until it, or empty space, is clicked
+    const h = nd !== root && nd.t < 0.5 && !nd.note ? nd : null;
+    if (h && !(pinned && hot === h)) { hot = h; pinned = true; } else { hot = null; pinned = false; }
+    req();
   }
 };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-cv.addEventListener('dblclick', e => { const nd = hit(e.clientX, e.clientY); if (!(nd.ref && !nd.children)) jump(nd); });
+cv.addEventListener('dblclick', e => { const nd = hit(e.clientX, e.clientY); if (!(nd.ref && !nd.children)) { hot = null; pinned = false; jump(nd); } });
 addEventListener('keydown', e => {
   // n and p step through the tags in the order the file declares them: n switches the next one on, p the last one off
   const names = Object.keys(STATES);
   if (e.key === 'n' || e.key === ']') { const x = names.find(s => off.has(s)); if (x) setState(x, true); return; }
   if (e.key === 'p' || e.key === '[') { const x = names.filter(s => !off.has(s)).pop(); if (x) setState(x, false); return; }
-  if (e.key === 'Escape') fit(focus.parent || root);
+  if (e.key === 'Escape') { if (pinned || only.size) { hot = null; pinned = false; for (const n of [...only]) pick(n, false); req(); } else fit(focus.parent || root); }
   else if (e.key === '0' || e.key === 'f') fit(root);
   else if (e.key === '+' || e.key === '=') zoomAt(vw / 2, vh / 2, 1.35);
   else if (e.key === '-') zoomAt(vw / 2, vh / 2, 1 / 1.35);
@@ -555,6 +578,7 @@ function fromHash(instant) {
   for (const s of (q.get('hide') || '').split(',')) if (s) setState(s, false);
   for (const s of (q.get('show') || '').split(',')) if (s) setState(s, true);
   hot = byId[q.get('hot')] || null; pinned = !!hot; // #hot=<id> opens with that box's arrows lit
+  for (const s of (q.get('only') || '').split(',')) if (s) pick(s, true); // #only=<style,style> opens with those arrow styles picked
   const at = byId[q.get('at')]; if (at) fit(at.children ? at : at.parent, instant);
 }
 fromHash(true); addEventListener('hashchange', () => fromHash(false));
