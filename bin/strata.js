@@ -22,7 +22,9 @@ if (cmd === 'gen') {
   try {
     const g = await genGo(resolve(dir), { only: o('--only') }), out = o('-o') || basename(resolve(dir)) + '.yaml';
     await writeFile(out, g.yaml);
-    console.log(`ok · ${g.packages} packages · ${g.imports} imports drawn (${g.dropped} to shared packages left out) · ${g.calls} links to ${g.systems} outside systems · ${resolve(out)}`);
+    console.log(`ok · ${g.packages} packages · ${g.imports} imports drawn (${g.dropped} to shared packages left out) · ${g.calls} links to ${g.systems} outside systems · ${g.routes} routes, ${g.streams} streams, ${g.buckets} buckets · ${g.reaches} program-to-system reaches · ${resolve(out)}`);
+    if (g.factsError) console.error(`warning: could not read the syntax tree (${g.factsError}); routes, streams, buckets and hosts are missing`);
+    if (g.otherHosts.length) console.log(`hosts in the code that are not drawn (unknown): ${g.otherHosts.join(', ')}`);
   } catch (e) { console.error(e.message); process.exit(1); }
   process.exit(0);
 }
