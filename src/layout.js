@@ -388,7 +388,7 @@ async function layoutOnce(model, hints) {
     if (stated) {
       try { make = (fx, fy) => placeStated(nd, fx, fy); res = await widen(make); } catch (e) { problems.push(e.message); res = null; make = null; }
     }
-    let hint = OWN ? null : hints && hints.get(nd.id); // the pulls of a second pass are ELK's only, so far
+    let hint = hints && hints.get(nd.id);
     while (!res) {
       const elkEdges = wanted.map(w => ({ id: w.id, sources: [w.a.id], targets: [w.b.id], labels: w.labels }));
       // a note that is about a box sits next to it: an unseen arrow ties the two together
@@ -420,7 +420,7 @@ async function layoutOnce(model, hints) {
       const unit = nd.children.reduce((s, c) => s + c.w + c.h, 0) / (2 * nd.children.length);
       const own = (dir, ord, bare, wrap, fx, fy) => layered(nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })),
         elkEdges.map(e => ({ a: e.sources[0], b: e.targets[0], label: bare.has(e.id) || !e.labels[0] ? 0 : e.labels[0].width })),
-        { dir, ord, wrap, unit, layerGap: Math.round(64 * (dir === 'DOWN' ? fy : fx)), nodeGap: Math.round(44 * (dir === 'DOWN' ? fx : fy)), compGap: Math.round(54 * Math.max(fx, fy)) });
+        { dir, ord, wrap, unit, pulls: [...(hint || [])].map(([, h]) => ({ side: h.side, kids: h.kids.filter(k => order.has(k)) })), layerGap: Math.round(64 * (dir === 'DOWN' ? fy : fx)), nodeGap: Math.round(44 * (dir === 'DOWN' ? fx : fy)), compGap: Math.round(54 * Math.max(fx, fy)) });
       const once = (dir, ord, bare, wrap, fx = 1, fy = 1, pull = pulls(dir)) => OWN ? own(dir, ord, bare, wrap, fx, fy) : elk.layout({
         id: nd.id,
         layoutOptions: {
@@ -457,7 +457,7 @@ async function layoutOnce(model, hints) {
         if (bad.length) { r = await once(dir, ord, new Set(bad), wrap, fx, fy); bad = routeless(r); }
         if (bad.length && wrap) { r = await once(dir, ord, new Set(), false, fx, fy); wrap = false; }
         r.wrapped = r.own ? r.wrapped : wrap; r.how = [dir, ord, wrap];
-        if (hint) { r.score = busyness(r, unit); strip(r); } // judged with the pulls in: they stand for the lines that leave
+        if (hint && !r.own) { r.score = busyness(r, unit); strip(r); } // judged with the pulls in: they stand for the lines that leave
         return r;
       };
       // Try the directions the file allows, each with the file's order held firmly, loosely and
@@ -707,8 +707,14 @@ export async function layout(model, { twice = false, engine = 'elk' } = {}) {
     if (m.size && nd.need) { m.was = nd.need; hints.set(nd.id, m); }
   });
   if (!hints.size) return first;
+  const third = structuredClone(spare);
   let second; try { second = await layoutOnce(spare, hints); } catch (e) { return first; }
-  const mark = m => { const t = quality(m).total; return t.crossings + 0.25 * t.bends + t.length; };
+  const one = t => t.crossings + 0.25 * t.bends + t.length, mark = m => one(quality(m).total);
+  // The pulls help some levels and hurt others. A third layout keeps them only where the level came out calmer.
+  const was = new Map(quality(first).levels.map(r => [r.id, one(r)])), kept = new Map();
+  for (const r of quality(second).levels) if (hints.has(r.id) && one(r) < was.get(r.id) - 0.01) kept.set(r.id, hints.get(r.id));
+  let best = mark(second) < mark(first) ? second : first;
+  if (kept.size && kept.size < hints.size) { try { const t = await layoutOnce(third, kept); if (mark(t) < mark(best)) best = t; if (DEBUG) console.error('third', mark(t).toFixed(1), kept.size, 'of', hints.size); } catch (e) { /* keep the best so far */ } }
   if (DEBUG) console.error('first', mark(first).toFixed(1), 'second', mark(second).toFixed(1));
-  return mark(second) < mark(first) ? second : first;
+  return best;
 }

@@ -24,6 +24,7 @@ function isotonic(t, w) {
 }
 
 function component(nodes, links, o) {
+  nodes = [...nodes].sort((p, q) => p.key - q.key);
   // 2. rows. nodes are in file order and every link runs from an earlier node to a later one.
   const n = nodes.length;
   for (const nd of nodes) { nd.layer = 0; nd.ins = []; nd.outs = []; }
@@ -114,6 +115,7 @@ function component(nodes, links, o) {
   let y = 0; const top = [];
   for (let k = 0; k < L; k++) { top.push(y); y += tall[k] + o.layerGap + room[k]; }
   for (const nd of nodes) nd.y = top[nd.layer] + tall[nd.layer] / 2;
+  nodes = nodes.filter(nd => !nd.virtual); // the unseen points of a pull have done their work
 
   // a long chain folds: the rows are cut into runs and the runs set side by side (o.fold = how many runs)
   let wrapped = false;
@@ -135,7 +137,8 @@ function component(nodes, links, o) {
 // boxes: [{ id, width, height }] in file order. arrows: [{ a, b, label }] (label: its width, or 0).
 // Returns what the layout engine would: { width, height, children: [{ id, x, y, width, height }], edges: [] },
 // with `score` (lower is a calmer picture) and `wrapped`.
-export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = false, layerGap = 64, nodeGap = 44, compGap = 54, aspect = 1.7, unit = 100 } = {}) {
+// pulls: [{ side: 0 top | 1 bottom | 2 left | 3 right, kids: [id] }]: arrows that leave this level by that side, and the boxes they are for.
+export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = false, layerGap = 64, nodeGap = 44, compGap = 54, aspect = 1.7, unit = 100, pulls = [] } = {}) {
   const right = dir === 'RIGHT';
   const nodes = boxes.map((b, i) => ({ id: b.id, key: i, w: right ? b.height : b.width, h: right ? b.width : b.height, real: b }));
   const by = new Map(nodes.map(nd => [nd.id, nd])), seen = new Set(), links = [];
@@ -151,9 +154,23 @@ export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = fals
   const groups = new Map();
   for (const nd of nodes) { const r = find(nd); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(nd); }
   const o = { ord, layerGap, nodeGap, labelRoom: w => (right ? Math.min(w, 130) : 16) };
+  // A pull along the flow is an unseen point before the first row or after the last, tied to its boxes.
+  // (Sides are turned for a flow to the right.)
+  const extra = new Map(); let vk = 0;
+  for (const p of pulls) {
+    const side = right ? [2, 3, 0, 1][p.side] : p.side, kids = p.kids.map(id => by.get(id)).filter(Boolean); if (!kids.length) continue;
+    if (side >= 2) continue; // across the flow: settled at the end, by turning the whole picture over if that brings the boxes nearer
+    const byPart = new Map(); for (const k of kids) { const r = find(k); if (!byPart.has(r)) byPart.set(r, []); byPart.get(r).push(k); }
+    for (const [r, ks] of byPart) {
+      const v = { id: 'pull:' + vk++, virtual: true, key: side === 0 ? -1 - vk : 1e6 + vk, w: 1, h: 0 };
+      if (!extra.has(r)) extra.set(r, { nodes: [], links: [] });
+      extra.get(r).nodes.push(v); for (const k of ks) extra.get(r).links.push(side === 0 ? { a: v, b: k, label: 0 } : { a: k, b: v, label: 0 });
+    }
+  }
   const parts = [...groups.values()].map(g => {
     const mine = links.filter(l => find(l.a) === find(g[0]));
-    let p = component(g, mine, { ...o, fold: 1 });
+    const ex = extra.get(find(g[0])) || { nodes: [], links: [] };
+    let p = component([...g, ...ex.nodes], [...mine, ...ex.links], { ...o, fold: 1 });
     if (wrap) { // fold a strip onto the number of runs that comes nearest a screen's shape
       const shape = q => { const [w, h] = right ? [q.h, q.w] : [q.w, q.h]; return Math.abs(Math.log(w / h / aspect)); };
       for (let fold = 2; fold <= 4; fold++) { const snap = g.map(nd => [nd.x, nd.y]), q = component(g, mine, { ...o, fold }); if (q.wrapped && shape(q) < shape(p)) p = q; else { g.forEach((nd, i) => { [nd.x, nd.y] = snap[i]; }); } }
@@ -163,14 +180,30 @@ export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = fals
   for (const p of parts) if (p.turn) for (const nd of p.nodes) { [nd.x, nd.y] = [nd.y, nd.x]; [nd.w, nd.h] = [nd.h, nd.w]; }
   // pack the parts in rows, the widest row about `aspect` times as wide as the block is tall
   const area = parts.reduce((s, p) => s + (p.w + compGap) * (p.h + compGap), 0), limit = Math.max(...parts.map(p => p.w), Math.sqrt(area * aspect));
+  // Parts that arrows leave upward go in the first rows and those that leave downward in the last; within a
+  // row, leftward first. With no pulls every part leans 0 and the file's order stands.
+  const lean = new Map(parts.map(p => [p, [0, 0]]));
+  for (const pl of pulls) for (const id of pl.kids) { const k = by.get(id), p = k && parts.find(q => q.nodes.includes(k)); if (p) lean.get(p)[pl.side < 2 ? 1 : 0] += pl.side % 2 ? 1 : -1; }
+  const sgn = v => Math.sign(v), queue = [...parts].sort((p, q) => sgn(lean.get(p)[1]) - sgn(lean.get(q)[1])), rowsOf = [[]];
   let x = 0, y = 0, rowH = 0;
-  for (const p of parts) {
-    if (x > 0 && x + p.w > limit) { x = 0; y += rowH + compGap; rowH = 0; }
-    for (const nd of p.nodes) { nd.x += x; nd.y += y; }
-    x += p.w + compGap; rowH = Math.max(rowH, p.h);
+  for (const p of queue) {
+    if (x > 0 && x + p.w > limit) { x = 0; rowsOf.push([]); }
+    rowsOf[rowsOf.length - 1].push(p); x += p.w + compGap;
+  }
+  for (const row of rowsOf) {
+    row.sort((p, q) => sgn(lean.get(p)[0]) - sgn(lean.get(q)[0])); x = 0; rowH = 0;
+    for (const p of row) { for (const nd of p.nodes) { nd.x += x; nd.y += y; } x += p.w + compGap; rowH = Math.max(rowH, p.h); }
+    y += rowH + compGap;
+  }
+  const width = Math.max(...nodes.map(nd => nd.x + nd.w / 2)), height = Math.max(...nodes.map(nd => nd.y + nd.h / 2));
+  // Left and right mean nothing to a flow that runs down (nor up and down to one that runs right), so the
+  // picture may be turned over across its flow. It is, when that brings boxes nearer the sides their arrows leave by.
+  const reach = () => { let d = 0; for (const p of pulls) for (const id of p.kids) { const k = by.get(id); if (k) d += [k.y - k.h / 2, height - k.y - k.h / 2, k.x - k.w / 2, width - k.x - k.w / 2][p.side]; } return d; };
+  if (pulls.length) {
+    const flip = () => { for (const nd of nodes) { if (right) nd.y = height - nd.y; else nd.x = width - nd.x; } };
+    const as = reach(); flip(); if (reach() >= as - 1) flip();
   }
   const children = nodes.map(nd => ({ id: nd.id, x: nd.x - nd.w / 2, y: nd.y - nd.h / 2, width: nd.w, height: nd.h }));
-  const width = Math.max(...children.map(c => c.x + c.width)), height = Math.max(...children.map(c => c.y + c.height));
 
   // how calm the picture is, judged before any arrow is drawn: a straight line stands in for each arrow
   let len = 0, bends = 0, crossings = 0;
@@ -188,6 +221,7 @@ export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = fals
     const p = links[i], q = links[j]; if (p.a === q.a || p.a === q.b || p.b === q.a || p.b === q.b) continue;
     if (side(p.a, p.b, q.a) * side(p.a, p.b, q.b) < 0 && side(q.a, q.b, p.a) * side(q.a, q.b, p.b) < 0) crossings++;
   }
+  len += reach(); // a line that leaves is as long as its box is far from that side
   const need = Math.max(width / 1.7, height);
   const score = len / unit + 0.7 * bends + 5 * crossings + (8 + 1.3 * links.length) * Math.log(need / unit);
   return { width, height, children, edges: [], own: true, score, wrapped: parts.some(p => p.wrapped) };
