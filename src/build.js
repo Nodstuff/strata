@@ -1,5 +1,6 @@
 // Turns a laid-out model into one self-contained HTML page: the data, the viewer, nothing else.
 import { walk } from './model.js';
+import { viewerSource } from './assets.js';
 
 const KEEP = ['id', 'label', 'sub', 'detail', 'note', 'kind', 'shape', 'state', 'until', 'ref', 'group', 'x', 'y', 'w', 'h', 'iw', 'ih', 'routes', 'xr'];
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -14,11 +15,7 @@ export function payload(model) {
   return { title: model.title, kinds: model.kinds, styles: model.styles, states: model.states, root: strip(model.root), edges: model.edges };
 }
 
-// Under Node the viewer's source is read from the file beside this one; in a browser the bundle carries it (src/browser.js).
-export async function html(model) {
-  const { readFile } = await import('node:fs/promises');
-  return page(model, await readFile(new URL('./viewer.js', import.meta.url), 'utf8'));
-}
+export async function html(model) { return page(model, await viewerSource()); }
 
 export function page(model, viewer) {
   const data = JSON.stringify(payload(model)).replace(/</g, '\\u003c'); // no "</script>" inside the page

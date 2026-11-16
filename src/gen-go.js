@@ -4,7 +4,9 @@
 // third-party imports are counted on each box, not drawn.
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { gofactsSource } from './assets.js';
 
 const run = (cmd, args, cwd) => new Promise((ok, fail) => execFile(cmd, args, { cwd, maxBuffer: 256 << 20, env: { ...process.env, GOPROXY: 'off' } }, // GOPROXY off: never the network, only what is already on disk
   (err, out, errOut) => (err && !out ? fail(new Error(errOut || err.message)) : ok(out))));
@@ -25,11 +27,17 @@ function objects(text) {
 // The facts only the syntax tree holds (routes, subjects, streams, buckets, hosts), read by a small
 // Go program that uses the standard library's parser. It is run from a temporary directory with the
 // network and the workspace off, so it cannot touch the module it reads.
-const goFacts = pkgs => new Promise((ok, fail) => {
-  const child = execFile('go', ['run', fileURLToPath(new URL('./gofacts/main.go', import.meta.url))], { cwd: tmpdir(), maxBuffer: 256 << 20, env: { ...process.env, GOPROXY: 'off', GOWORK: 'off', GOFLAGS: '' } },
-    (err, out, errOut) => { if (err) return fail(new Error((errOut || err.message).trim().split('\n')[0])); try { ok(JSON.parse(out)); } catch (e) { fail(e); } });
-  child.stdin.end(JSON.stringify(pkgs.map(p => ({ ImportPath: p.ImportPath, Name: p.Name, Dir: p.Dir, GoFiles: p.GoFiles }))));
-});
+const goFacts = async pkgs => {
+  const dir = await mkdtemp(join(tmpdir(), 'strata-gofacts-'));
+  try {
+    await writeFile(join(dir, 'main.go'), await gofactsSource());
+    return await new Promise((ok, fail) => {
+      const child = execFile('go', ['run', 'main.go'], { cwd: dir, maxBuffer: 256 << 20, env: { ...process.env, GOPROXY: 'off', GOWORK: 'off', GOFLAGS: '' } },
+        (err, out, errOut) => { if (err) return fail(new Error((errOut || err.message).trim().split('\n')[0])); try { ok(JSON.parse(out)); } catch (e) { fail(e); } });
+      child.stdin.end(JSON.stringify(pkgs.map(p => ({ ImportPath: p.ImportPath, Name: p.Name, Dir: p.Dir, GoFiles: p.GoFiles }))));
+    });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+};
 
 // A URL written in the code says what it calls when there is no SDK to import.
 const HOSTS = [['slack.com', 'Slack'], ['workos.com', 'WorkOS'], ['workato.com', 'Workato'], ['anthropic.com', 'Anthropic API'], ['openai.com', 'OpenAI API'],

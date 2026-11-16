@@ -2,11 +2,40 @@
 
 One YAML file becomes one self-contained HTML page: a diagram you zoom into. A box that has boxes inside it is a single labelled box when small and opens to show its contents as you zoom in. Arrows are declared once and merge on their own while their ends are closed.
 
+## Use it with Claude Code
+
+strata is a Claude Code plugin: a skill that teaches Claude the file format and how to structure a diagram, and the command that draws it. You need Node 22 or newer. Chrome or Chromium is used when Claude takes pictures to check its own work, and Go only for reading a Go repository.
+
 ```
-node bin/strata.js check examples/shop.yaml            # validate and print the tree
-node bin/strata.js build examples/shop.yaml -o shop.html
-node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of one level (needs Chrome)
+claude plugin marketplace add <owner>/strata      # or a path to a local clone
+claude plugin install strata@strata
 ```
+
+Then ask for what you want, in Claude Code, inside the repository you want drawn or anywhere else:
+
+- "Draw a strata diagram of this repository's architecture."
+- "Make a zoomable diagram of the checkout flow: gateway, orders, payments, and what each talks to."
+
+Claude writes `<name>.yaml`, checks it, looks at pictures of it, and gives you `<name>.html`. The page is one file with nothing loaded from outside: open it, send it, or put it on a share. Scroll or pinch to zoom, click a box for its links, double-click to dive in, `/` to find a box.
+
+To update: `claude plugin update strata@strata`. Without plugins, copy the folder `skills/strata` to `~/.claude/skills/strata`; it holds the skill and the command.
+
+## Use it by hand
+
+The command is one file, `skills/strata/strata.mjs`. Put it anywhere and run it with Node; from a clone, `node bin/strata.js` runs the sources (after `npm install`).
+
+```
+strata check examples/shop.yaml                    # validate and print the tree
+strata build examples/shop.yaml -o shop.html       # the page
+strata shot  examples/shop.yaml --at ord -o ord.png   # a picture of one level (needs Chrome)
+strata facts go <dir>                              # what a Go module's code says about its architecture (needs Go)
+```
+
+The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.md). `examples/shop.yaml` is a good one to copy from.
+
+## Working on strata
+
+`npm install`, then `npm test` before sharing a commit: it checks that the checked-in command matches the sources, that it runs on its own, and that the examples still build with arrows as clean as recorded. After changing anything under `src/` or `bin/`, run `npm run bundle` and commit `skills/strata/strata.mjs` with the change.
 
 ## Where things are
 
@@ -17,7 +46,10 @@ node bin/strata.js shot  examples/shop.yaml --at ord -o ord.png   # a picture of
 | `src/viewer.js` | The viewer: plain browser JavaScript, no dependencies, pasted into every page. |
 | `src/build.js` | Assembles the HTML page; also the text outline `check` prints. |
 | `bin/strata.js` | The command line. |
-| `skill/SKILL.md` | What Claude reads to write diagrams: the file format and how to structure one. |
+| `skills/strata/SKILL.md` | What Claude reads to write diagrams: the file format and how to structure one. |
+| `skills/strata/strata.mjs` | The command as one file, built by `scripts/bundle.mjs` from `src/` and `bin/`. Checked in so that installing needs no build. |
+| `.claude-plugin/` | What makes the repository a Claude Code plugin and its own marketplace. |
+| `playground/` | A page that draws in the browser as you type (see "In a browser"). |
 | `examples/` | Diagrams that are safe to share: `shop.yaml` (automatic layout, three levels) and `placed.yaml` (stated placement). |
 | `private/` | Diagrams that are not (git-ignored). |
 

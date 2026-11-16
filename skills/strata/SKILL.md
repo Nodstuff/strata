@@ -7,7 +7,7 @@ description: Build a zoomable, nested architecture or flow diagram with strata (
 
 strata turns one YAML file into one HTML page. The page shows a tree of boxes: zoomed out you see the top level, and a box that has boxes inside it opens when you zoom into it. Arrows are declared once, between the deepest boxes that exist, and merge automatically when their ends are closed. You never write coordinates; layout is automatic.
 
-The tool lives in `~/personal/strata`. Run it as `node ~/personal/strata/bin/strata.js <command> <file.yaml>`.
+The command ships beside this file as one script and needs only Node 22 or newer. Wherever this page writes `strata <command>`, run `node ${CLAUDE_SKILL_DIR}/strata.mjs <command>`. `shot` also needs Chrome or Chromium, and `facts go` needs the Go toolchain; say so plainly if one is missing and carry on without that step.
 
 ## The loop
 

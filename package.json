@@ -7,6 +7,10 @@
   "bin": {
     "strata": "bin/strata.js"
   },
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "test": "node scripts/test.mjs"
+  },
   "engines": {
     "node": ">=22"
   },

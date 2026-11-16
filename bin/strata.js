@@ -13,13 +13,19 @@ import { layout } from '../src/layout.js';
 import { html, outline, legibility, busy, quality } from '../src/build.js';
 
 const [cmd, file, ...rest] = process.argv.slice(2);
+// the version: a bundle has it built in, a checkout reads package.json
+if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+  console.log(typeof STRATA_VERSION !== 'undefined' ? STRATA_VERSION : JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version);
+  process.exit(0);
+}
+const noGo = e => (/ENOENT/.test(e.message) && /\bgo\b/.test(e.message) ? 'this command needs the Go toolchain (the `go` command) on your PATH' : e.message);
 // strata facts go <dir> [--only internal/x] [-o facts.md]   what a Go module's code says about its architecture, as text with file and line
 if (cmd === 'facts') {
   const [lang, dir, ...more] = [file, ...rest], o = n => { const i = more.indexOf(n); return i >= 0 ? more[i + 1] : null; };
   if (lang !== 'go' || !dir) { console.error('usage: strata facts go <dir> [--only <path inside the module>] [-o facts.md]'); process.exit(2); }
   const { genGo } = await import('../src/gen-go.js');
   try { const g = await genGo(resolve(dir), { only: o('--only') }); if (o('-o')) { await writeFile(o('-o'), g.report); console.log(`ok · ${resolve(o('-o'))}`); } else process.stdout.write(g.report); }
-  catch (e) { console.error(e.message); process.exit(1); }
+  catch (e) { console.error(noGo(e)); process.exit(1); }
   process.exit(0);
 }
 // strata gen go <dir> --experimental [--only internal/x] [-o out.yaml]   EXPERIMENTAL: a strata file of a Go module's packages and imports
@@ -34,11 +40,11 @@ if (cmd === 'gen') {
     console.log(`ok · ${g.packages} packages · ${g.imports} imports drawn (${g.dropped} to shared packages left out) · ${g.calls} links to ${g.systems} outside systems · ${g.routes} routes, ${g.streams} streams, ${g.buckets} buckets · ${g.reaches} program-to-system reaches · ${resolve(out)}`);
     if (g.factsError) console.error(`warning: could not read the syntax tree (${g.factsError}); routes, streams, buckets and hosts are missing`);
     if (g.otherHosts.length) console.log(`hosts in the code that are not drawn (unknown): ${g.otherHosts.join(', ')}`);
-  } catch (e) { console.error(e.message); process.exit(1); }
+  } catch (e) { console.error(noGo(e)); process.exit(1); }
   process.exit(0);
 }
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
-const usage = () => { console.error('usage: strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--twice] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
+const usage = () => { console.error('usage: strata --version\n       strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--twice] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;

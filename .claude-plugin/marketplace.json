@@ -1,0 +1,7 @@
+{
+  "name": "strata",
+  "owner": { "name": "Tom Meaney" },
+  "plugins": [
+    { "name": "strata", "source": "./", "description": "Zoomable nested architecture and flow diagrams from one YAML file." }
+  ]
+}
