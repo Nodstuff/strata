@@ -4,3 +4,6 @@ private/
 *.png
 dist/
 !playground/*.html
+
+/strata
+/strata.exe

@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shop platform</title>
+<style>
+:root{--bg:#f5f4f1;--ink:#1c1c1f;--muted:#6a6a72;--chip:#ffffffd9;--chipb:#00000017}
+@media (prefers-color-scheme:dark){:root{--bg:#121215;--ink:#ececf1;--muted:#9c9ca8;--chip:#1e1e24d9;--chipb:#ffffff22}}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font:13px/1.4 system-ui,-apple-system,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas.drag{cursor:grabbing}
+.hud{position:fixed;background:var(--chip);border:1px solid var(--chipb);border-radius:9px;padding:6px 10px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);user-select:none;-webkit-user-select:none}
+#crumbs{top:12px;left:12px;display:flex;gap:2px;align-items:center;max-width:calc(100vw - 48px);overflow:hidden;white-space:nowrap}
+#crumbs button,.toggle,.sty{all:unset;cursor:pointer;padding:2px 6px;border-radius:6px}
+#crumbs button:hover,.toggle:hover,.sty:hover{background:var(--chipb)}
+.sty{transition:opacity .2s}.sty.sel{color:var(--ink);background:var(--chipb);font-weight:600;box-shadow:0 0 0 1.5px var(--ink)}.sty.dim{opacity:.45}
+.all{all:unset;cursor:pointer;padding:2px 9px;border-radius:999px;font-weight:700;color:#1c1c1f;background:#f2c94c}.all[hidden]{display:none}
+.sty:focus-visible{outline:2px solid var(--muted);outline-offset:2px}
+.step{all:unset;cursor:pointer;padding:0 7px;border-radius:6px;font-size:16px;line-height:1;color:var(--ink)}.step:hover{background:var(--chipb)}
+.hud[hidden]{display:none}
+#info{top:58px;right:12px;width:300px;max-height:calc(100vh - 130px);overflow:auto;padding:10px 12px;font-size:12px;user-select:text;-webkit-user-select:text}
+#info .ih{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}#info .ih b{font-size:14px}#info .ih span{color:var(--muted);flex:1}
+#info p{margin:2px 0;color:var(--muted)}
+#info h4{margin:12px 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+#info button{all:unset;cursor:pointer;border-radius:6px}#info button:hover{background:var(--chipb)}
+#info .ix{padding:0 6px;color:var(--muted);font-size:16px}
+#info .io{display:inline-block;margin-top:8px;padding:3px 9px;border:1px solid var(--chipb);font-weight:600}
+#info .ir{display:grid;grid-template-columns:10px 1fr;column-gap:8px;padding:4px 6px;width:calc(100% - 12px)}
+#info .ir i{width:8px;height:8px;border-radius:50%;margin-top:5px;grid-row:1/3}
+#info .ir .in{font-weight:600}#info .ir .il{color:var(--muted);grid-column:2}
+#find{top:58px;left:12px;width:320px;padding:8px}
+#find input{all:unset;width:100%;box-sizing:border-box;padding:4px 6px;font-size:14px}
+#find button{all:unset;cursor:pointer;display:block;padding:4px 6px;border-radius:6px;width:calc(100% - 12px)}
+#find button:hover,#find button:first-child{background:var(--chipb)}
+#find button span{display:block;color:var(--muted);font-size:11px}
+@media (max-width:700px){#info{left:12px;right:12px;width:auto;top:auto;bottom:12px;max-height:42vh}#find{width:auto;right:12px}}
+#crumbs button:last-of-type{font-weight:600}
+#crumbs span{color:var(--muted)}
+#legend{top:12px;right:12px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 6px;align-items:center;color:var(--muted);font-size:12px;max-width:calc(100vw - 300px)}
+#legend>*{flex:none;white-space:nowrap}
+#legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+.toggle{color:var(--ink);border:1px solid;border-radius:999px;padding:2px 10px 2px 8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;transition:opacity .2s,background .2s}
+.toggle b{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--tc);background:var(--tc);transition:background .2s}
+.toggle.off{opacity:.6;border-style:dashed;font-weight:500}
+.toggle.off b{background:transparent}
+.toggle:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
+#hint{bottom:12px;left:12px;color:var(--muted)}
+#stats{bottom:12px;right:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+@media (max-width:1100px){#legend .sty{display:none}}
+@media (max-width:900px){#hint{display:none}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="crumbs" class="hud"></div>
+<div id="legend" class="hud"></div>
+<div id="hint" class="hud">Scroll or pinch to zoom · drag to pan · click a box for its links · double-click to dive in · / finds a box · Esc goes up</div>
+<div id="stats" class="hud"></div>
+<div id="info" class="hud" hidden></div>
+<div id="find" class="hud" hidden><input placeholder="Find a box…" aria-label="Find a box"><div></div></div>
+<script>window.STRATA={"title":"Shop platform","kinds":{"service":{"c":[76,124,240],"dashed":false},"store":{"c":[224,122,48],"dashed":false},"infra":{"c":[154,107,224],"dashed":false},"external":{"c":[130,134,146],"dashed":true},"step":{"c":[120,130,200],"dashed":false},"frame":{"c":[130,134,146],"dashed":false},"note":{"c":[200,160,30],"dashed":false},"ref":{"c":[130,110,240],"dashed":false},"purple":{"c":[154,107,224],"dashed":false},"orange":{"c":[224,122,48],"dashed":false}},"styles":{"flow":{"c":null,"w":1.3,"dash":null,"rank":1,"label":null,"noHead":false},"yes":{"c":[34,160,90],"w":1.6,"dash":null,"rank":2,"label":null,"noHead":false},"no":{"c":[220,70,70],"w":1.6,"dash":null,"rank":2,"label":null,"noHead":false}},"states":{"proposed":{"label":"Proposed","c":[200,160,30],"shown":false}},"root":{"id":"__root","label":"Shop platform","sub":"EKS cluster","kind":"frame","group":true,"w":1426.9,"h":1170.9,"iw":1426.9,"ih":1170.9,"routes":{"web>gw":{"p":[[832.2,104],[832.2,184]],"l":[832.2,144]},"cat>sidx":{"p":[[670.3,360],[683.3,360],[683.3,609.6],[627.3,609.6]],"l":[655.3,609.6]},"ord>pay":{"p":[[785.3,633.7],[696.8,633.7],[696.8,790.7]],"m":[696.8,712.2,157]},"pay>psp":{"p":[[696.8,968.9],[696.8,1074.4],[681.3,1074.4]],"l":[696.8,1021.7]},"psp>pay":{"p":[[681.3,1090.9],[817.5,1090.9],[817.5,968.9]],"l":[749.4,1090.9]},"pay>pdb":{"p":[[875,820.3],[893.2,820.3],[893.2,1048.9]],"l":[893.2,986.3]},"kafka>notify":{"p":[[1215.9,416.7],[1281.1,416.7],[1281.1,597.6]],"l":[1281.1,507.2]},"ord>kafka":{"p":[[1015.3,633.7],[1054.2,633.7],[1054.2,433.2]],"l":[1054.2,533.5]},"gw>kafka":{"p":[[886.1,250],[886.1,383.7],[1000.3,383.7]],"m":[943.2,383.7,114.2]},"gw>cat":{"p":[[724.4,233.5],[483.2,233.5],[483.2,330]],"l":[603.8,233.5]},"gw>ord":{"p":[[886.1,250],[886.1,383.7],[864.8,383.7],[864.8,550.4]],"m":[864.8,467.1,166.7]},"ord>odb":{"p":[[918.6,710.7],[918.6,858.8],[1033,858.8]],"l":[975.8,858.8]},"ord>cat":{"p":[[785.3,633.7],[696.8,633.7],[696.8,401.7],[670.3,401.7]],"m":[696.8,517.7,232]},"cat>cache":{"p":[[440.3,401.7],[199.7,401.7],[199.7,588.6]],"l":[320,401.7]}},"children":[{"id":"web","label":"Web & mobile","sub":"clients","kind":"external","x":724.4,"y":38,"w":215.6,"h":66},{"id":"gw","label":"API gateway","sub":"ingress · auth","kind":"service","x":724.4,"y":184,"w":215.6,"h":66},{"id":"cat","label":"Catalog","sub":"service","kind":"service","x":440.3,"y":330,"w":230,"h":140.4,"iw":606,"ih":370,"routes":{"c_api>c_stock":{"p":[[188,189],[418,189]]},"c_api>c_search":{"p":[[188,189],[405,189],[405,95.5],[418,95.5]],"m":[405,142.3,93.5]},"c_api>c_products":{"p":[[188,189],[405,189],[405,282.5],[418,282.5]],"m":[405,235.8,93.5]}},"xr":{"i:gw":{"port":[113.1,0],"r":{"c_api":[[113.1,156],[113.1,0]]}},"i:ord":{"port":[606,188.9],"r":{"c_stock":[[568,188.9],[606,188.9]]}},"o:sidx":{"port":[606,79],"r":{"c_search":[[568,79],[606,79]]}},"o:cache":{"port":[0,188.9],"r":{"c_api":[[38,188.9],[0,188.9]]}}},"children":[{"id":"c_api","label":"Catalog API","kind":"step","x":38,"y":156,"w":150,"h":66},{"id":"c_search","label":"Search","kind":"step","x":418,"y":46,"w":150,"h":66},{"id":"c_stock","label":"Stock","sub":"reservations","kind":"step","x":418,"y":156,"w":150,"h":66},{"id":"c_products","label":"Products","kind":"step","x":418,"y":266,"w":150,"h":66}]},{"id":"cache","label":"Read cache","sub":"Redis","kind":"store","shape":"cylinder","state":"proposed","x":38,"y":588.6,"w":215.6,"h":84},{"id":"sidx","label":"Search index","sub":"OpenSearch","kind":"store","shape":"cylinder","x":411.6,"y":588.6,"w":215.6,"h":84},{"id":"kafka","label":"Event bus","sub":"Kafka","kind":"purple","x":1000.3,"y":367.2,"w":215.6,"h":66},{"id":"ord","label":"Orders","sub":"service","kind":"service","x":785.3,"y":550.4,"w":230,"h":160.3,"iw":766.7,"ih":534.3,"routes":{"o_api>ck":{"p":[[265.1,124.7],[265.1,204.7]],"l":[265.1,164.7]},"ck>o_pricing":{"p":[[340.3,350.3],[340.3,446.8],[211.4,446.8]],"m":[340.3,398.6,96.5]},"o_outbox>o_repo":{"p":[[538.1,294],[481.9,294],[481.9,430.3]],"l":[481.9,362.2]},"ck>o_repo":{"p":[[340.3,350.3],[340.3,446.8],[369.4,446.8]],"m":[300,398.6,96.5]}},"xr":{"i:gw":{"port":[265,0],"r":{"o_api":[[265,58.7],[265,0]]}},"o:cat":{"port":[0,277.6],"r":{"ck":[[150.1,277.6],[0,277.6]]}},"o:pay":{"port":[0,277.6],"r":{"ck":[[150.1,277.6],[0,277.6]]}},"o:kafka":{"port":[766.7,277.6],"r":{"o_outbox":[[705.3,277.6],[766.7,277.6]]}},"o:odb":{"port":[444.4,534.3],"r":{"o_repo":[[444.4,496.3],[444.4,534.3]]}}},"children":[{"id":"o_api","label":"HTTP API","sub":"handlers","kind":"step","x":190.1,"y":58.7,"w":150,"h":66},{"id":"ck","label":"Checkout","sub":"feature","kind":"orange","x":150.1,"y":204.7,"w":230,"h":145.6,"iw":654,"ih":414,"routes":{"ck_validate>ck_reserve":{"p":[[188,79],[252,79]]},"ck_reserve>ck_price":{"p":[[402,79],[466,79]]},"ck_auth>ck_create":{"p":[[213.4,288],[388.9,288],[388.9,266]],"m":[388.9,277,22]},"ck_auth>ck_comp":{"p":[[213.4,288],[388.9,288],[388.9,310]],"m":[388.9,299,22]},"ck_price>ck_auth":{"p":[[503.5,112],[503.5,187],[169.6,187],[169.6,255]]}},"xr":{"i:o_api":{"port":[327.1,0],"r":{"ck_validate":[[150.5,46],[150.5,13],[327.1,13],[327.1,0]]}},"o:cat":{"port":[0,207.2],"r":{"ck_reserve":[[289.5,112],[289.5,207.2],[0,207.2]]}},"o:pay":{"port":[0,207.2],"r":{"ck_auth":[[38,271.5],[13,271.5],[13,207.2],[0,207.2]],"ck_comp":[[351.4,343],[13,343],[13,207.2],[0,207.2]]}},"o:o_pricing":{"port":[540.9,414],"r":{"ck_price":[[540.9,112],[540.9,414]]}},"o:o_repo":{"port":[540.9,414],"r":{"ck_create":[[501.4,249.5],[540.9,249.5],[540.9,414]]}}},"children":[{"id":"ck_validate","label":"Validate cart","kind":"step","x":38,"y":46,"w":150,"h":66},{"id":"ck_reserve","label":"Reserve stock","kind":"step","x":252,"y":46,"w":150,"h":66},{"id":"ck_price","label":"Price & tax","kind":"step","x":466,"y":46,"w":150,"h":66},{"id":"ck_auth","label":"Authorise payment","kind":"step","x":38,"y":255,"w":175.4,"h":66},{"id":"ck_create","label":"Create order","kind":"step","x":351.4,"y":200,"w":150,"h":66},{"id":"ck_comp","label":"Compensate","sub":"release · void","kind":"step","x":351.4,"y":310,"w":150,"h":66}]},{"id":"o_outbox","label":"Outbox publisher","kind":"step","x":538.1,"y":244.5,"w":167.2,"h":66},{"id":"o_repo","label":"Repository","kind":"step","x":369.4,"y":430.3,"w":150,"h":66},{"id":"o_pricing","label":"Pricing rules","sub":"tax · discounts","kind":"step","x":61.4,"y":430.3,"w":150,"h":66}]},{"id":"pay","label":"Payments","sub":"service","kind":"service","x":645,"y":790.7,"w":230,"h":178.1,"iw":766.7,"ih":593.8,"routes":{"p_hooks>p_ledger":{"p":[[625.3,377.5],[625.3,131.5]],"l":[625.3,254.5]},"p_api>au":{"p":[[172.7,131.5],[172.7,377.5]],"l":[172.7,254.5]},"au>p_ledger":{"p":[[287.7,529.1],[528.7,529.1],[528.7,364.5],[625.3,364.5],[625.3,131.5]],"m":[408.2,529.1,241]}},"xr":{"i:ord":{"port":[172.7,0],"r":{"p_api":[[172.7,65.5],[172.7,0]]}},"o:psp":{"port":[172.7,593.8],"r":{"au":[[172.7,555.6],[172.7,593.8]]}},"i:psp":{"port":[575,593.8],"r":{"p_hooks":[[575,443.5],[575,593.8]]}},"o:pdb":{"port":[766.7,98.6],"r":{"p_ledger":[[700.3,98.6],[766.7,98.6]]}}},"children":[{"id":"p_api","label":"Payments API","kind":"step","x":97.7,"y":65.5,"w":150,"h":66},{"id":"au","label":"Authorise","sub":"feature","kind":"orange","x":57.7,"y":377.5,"w":230,"h":178.1,"iw":615,"ih":476.3,"routes":{"au_call>au_record":{"p":[[188.8,405.3],[418.8,405.3]]},"au_idem>au_risk":{"p":[[197,85.3],[427,85.3]]},"au_risk>au_call":{"p":[[427,101.8],[210,101.8],[210,388.8],[188.8,388.8]]}},"xr":{"i:p_api":{"port":[307.4,0],"r":{"au_idem":[[197,68.8],[307.4,68.8],[307.4,0]]}},"o:psp":{"port":[307.4,476.3],"r":{"au_call":[[188.8,421.8],[307.4,421.8],[307.4,476.3]]}},"o:p_ledger":{"port":[615,405.4],"r":{"au_record":[[568.8,405.4],[615,405.4]]}}},"children":[{"id":"au_idem","label":"Idempotency key","kind":"step","x":38,"y":52.3,"w":159,"h":66},{"id":"au_risk","label":"Risk score","kind":"step","x":427,"y":52.3,"w":150,"h":66},{"id":"au_call","label":"Call processor","kind":"step","x":38,"y":372.3,"w":150.8,"h":66},{"id":"au_record","label":"Record hold","kind":"step","x":418.8,"y":372.3,"w":150,"h":66}]},{"id":"p_ledger","label":"Ledger","kind":"step","x":550.3,"y":65.5,"w":150,"h":66},{"id":"p_hooks","label":"Webhook receiver","kind":"step","x":541.7,"y":377.5,"w":167.2,"h":66}]},{"id":"psp","label":"Card processor","sub":"external","kind":"external","x":464.5,"y":1057.9,"w":216.8,"h":66},{"id":"notify","label":"Notifications","sub":"service","kind":"service","x":1173.3,"y":597.6,"w":215.6,"h":66},{"id":"odb","label":"Orders DB","sub":"Postgres","kind":"store","shape":"cylinder","x":1033,"y":837.8,"w":215.6,"h":84},{"id":"pdb","label":"Payments DB","sub":"Postgres","kind":"store","shape":"cylinder","x":839.3,"y":1048.9,"w":215.6,"h":84}]},"edges":[{"a":"web","b":"gw","label":"HTTPS","style":"flow"},{"a":"gw","b":"o_api","label":"REST","style":"flow"},{"a":"gw","b":"c_api","label":"REST","style":"flow"},{"a":"o_api","b":"ck_validate","label":"POST /checkout","style":"flow"},{"a":"ck_validate","b":"ck_reserve","label":"","style":"flow"},{"a":"ck_reserve","b":"ck_price","label":"","style":"flow"},{"a":"ck_price","b":"ck_auth","label":"","style":"flow"},{"a":"ck_auth","b":"ck_create","label":"authorised","style":"flow"},{"a":"ck_auth","b":"ck_comp","label":"declined","style":"flow"},{"a":"ck_reserve","b":"c_stock","label":"reserve","style":"flow"},{"a":"ck_price","b":"o_pricing","label":"rules","style":"flow"},{"a":"ck_auth","b":"p_api","label":"authorise","style":"flow"},{"a":"ck_comp","b":"p_api","label":"void","style":"flow"},{"a":"ck_create","b":"o_repo","label":"order + outbox row","style":"flow"},{"a":"o_outbox","b":"o_repo","label":"poll","style":"flow"},{"a":"o_outbox","b":"kafka","label":"OrderPlaced","style":"flow"},{"a":"kafka","b":"notify","label":"consume","style":"flow"},{"a":"o_repo","b":"odb","label":"SQL","style":"flow"},{"a":"p_api","b":"au_idem","label":"authorise()","style":"flow"},{"a":"au_idem","b":"au_risk","label":"","style":"flow"},{"a":"au_risk","b":"au_call","label":"","style":"flow"},{"a":"au_call","b":"au_record","label":"","style":"flow"},{"a":"au_call","b":"psp","label":"charge","style":"flow"},{"a":"psp","b":"p_hooks","label":"webhook","style":"flow"},{"a":"au_record","b":"p_ledger","label":"hold","style":"flow"},{"a":"p_hooks","b":"p_ledger","label":"settle","style":"flow"},{"a":"p_ledger","b":"pdb","label":"SQL","style":"flow"},{"a":"c_api","b":"c_search","label":"","style":"flow"},{"a":"c_api","b":"c_products","label":"","style":"flow"},{"a":"c_api","b":"c_stock","label":"","style":"flow"},{"a":"c_search","b":"sidx","label":"query","style":"flow"},{"a":"c_api","b":"cache","label":"read-through","style":"flow"},{"a":"gw","b":"kafka","label":"audit events","style":"flow","tag":"proposed"}]}</script>
+<script>
+// The viewer. Plain browser JavaScript with no dependencies: `strata build` pastes this
+// file, and the laid-out diagram as window.STRATA, into one HTML page.
+(function () {
+'use strict';
+const D = window.STRATA, root = D.root, KIND = D.kinds, STY = D.styles, STATES = D.states;
+const $ = id => document.getElementById(id);
+
+// ---------- the tree: absolute positions, once ----------
+const all = [], byId = {};
+(function walk(nd, parent) {
+  nd.parent = parent; nd.path = parent ? parent.path.concat(nd) : [nd];
+  nd.st = nd.state || (parent && parent.st) || null;
+  nd.ut = nd.until || (parent && parent.ut) || null; // the tag that retires this box, its own or a container's
+  nd.lines = nd.label.split('\n'); nd.title = nd.lines.join(' ');
+  all.push(nd); byId[nd.id] = nd;
+  if (!nd.children) return;
+  const u = nd.aw / nd.iw; // one inner unit of this container, in root units
+  for (const c of nd.children) { c.ax = nd.ax + c.x * u; c.ay = nd.ay + c.y * u; c.aw = c.w * u; c.ah = c.h * u; walk(c, nd); }
+})(Object.assign(root, { ax: 0, ay: 0, aw: root.iw, ah: root.ih }), null);
+const E = D.edges.map(e => ({ a: byId[e.a], b: byId[e.b], label: e.label, style: e.style, tag: e.tag || null, until: e.until || null }));
+
+// ---------- theme ----------
+const FONT = 'system-ui,-apple-system,"Segoe UI",sans-serif';
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const colOf = nd => nd.st && !nd.note ? STATES[nd.st].c : (KIND[nd.kind] || KIND.frame).c;
+const mq = matchMedia('(prefers-color-scheme:dark)');
+let C;
+function theme() {
+  C = mq.matches
+    ? { dark: true, bg: '#121215', box: '#1f1f25', panel: '#17171b', ink: '#ececf1', muted: '#9c9ca8', line: [158, 158, 174], hi: [236, 236, 241], tint: 0.17, pill: '#2a2a33' }
+    : { bg: '#f5f4f1', box: '#ffffff', panel: '#fbfbf9', ink: '#1c1c1f', muted: '#6a6a72', line: [120, 120, 132], hi: [28, 28, 31], tint: 0.09, pill: '#ffffff' };
+}
+theme(); mq.addEventListener('change', () => { theme(); req(); });
+
+// ---------- camera ----------
+const cv = $('cv'), ctx = cv.getContext('2d');
+let vw = 0, vh = 0, dpr = 1, k = 1, tx = 0, ty = 0, kfit = 1, raf = 0, anim = null;
+const off = new Set(); // tags switched off
+let ready = false, pinned = false; // ready: the page has opened and the address may follow the view; pinned: a box was clicked and stays lit
+const only = new Set(); // arrow styles picked in the legend: when any are picked, every other arrow goes faint
+let taAt = 0;
+const ta = {}, lit = {}; // how far each tag has faded in (0 to 1), and when it was last switched on
+for (const n of Object.keys(STATES)) { ta[n] = 1; lit[n] = -1e9; }
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+function req() { if (!raf) raf = requestAnimationFrame(draw); }
+const gutter = () => clamp(vw * 0.1, 70, 170);
+let TOP = 52; // where the picture may begin: under the top bar, which is taller when the legend wraps
+function target(nd) {
+  const top = 56, bot = 44;
+  // a container keeps a gutter free on every side: the labels of arrows that leave it sit there, clear of its boxes
+  const gx = nd === root ? vw * 0.04 : gutter(), gy = nd === root ? (vh - top - bot) * 0.04 : 34;
+  const side = pinned && hot && vw > 1000 ? 316 : 0; // the open panel's width: the picture fits beside it, not under it
+  const kk = Math.min((vw - side - 2 * gx) / nd.aw, (vh - top - bot - 2 * gy) / nd.ah);
+  return { k: kk, tx: (vw - side) / 2 - (nd.ax + nd.aw / 2) * kk, ty: top + (vh - top - bot) / 2 - (nd.ay + nd.ah / 2) * kk };
+}
+function fit(nd, instant) {
+  const m = target(nd);
+  if (instant) { anim = null; k = m.k; tx = m.tx; ty = m.ty; req(); return; }
+  const ax = vw / 2, ay = vh / 2, k0 = k, k1 = m.k;
+  const c0 = [(ax - tx) / k, (ay - ty) / k], c1 = [(ax - m.tx) / m.k, (ay - m.ty) / m.k];
+  const dur = Math.min(1300, 420 + 140 * Math.abs(Math.log2(k1 / k0))), s0 = performance.now();
+  anim = () => {
+    const s = Math.min(1, (performance.now() - s0) / dur);
+    const e = s < 0.5 ? 4 * s * s * s : 1 - Math.pow(-2 * s + 2, 3) / 2;
+    k = k0 * Math.pow(k1 / k0, e);
+    const u = Math.abs(k1 / k0 - 1) < 1e-6 ? e : (1 - k0 / k) / (1 - k0 / k1); // the target travels in a straight line on screen
+    tx = ax - lerp(c0[0], c1[0], u) * k; ty = ay - lerp(c0[1], c1[1], u) * k;
+    if (s >= 1) anim = null;
+  };
+  req();
+}
+const jump = nd => fit(nd.children ? nd : nd.parent);
+function zoomAt(x, y, f) {
+  anim = null;
+  const nk = clamp(k * f, kfit * 0.4, kfit * 1e6); f = nk / k;
+  tx = x - (x - tx) * f; ty = y - (y - ty) * f; k = nk; req();
+}
+function resize() {
+  const first = !vw;
+  dpr = window.devicePixelRatio || 1; vw = innerWidth; vh = innerHeight;
+  cv.width = Math.round(vw * dpr); cv.height = Math.round(vh * dpr);
+  kfit = target(root).k;
+  if (first) fit(root, true); else req();
+}
+addEventListener('resize', resize);
+
+// ---------- text metrics, once ----------
+const twCache = {};
+function tw(s, wgt) { // width at 1px; measured small, where system fonts run wider
+  const key = (wgt || 600) + s;
+  if (!(key in twCache)) { ctx.font = `${wgt || 600} 12px ${FONT}`; twCache[key] = ctx.measureText(s).width / 12; }
+  return twCache[key];
+}
+function wrap(text, W) {
+  const out = [];
+  for (const para of text.split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const next = line ? line + ' ' + word : word;
+      if (line && tw(next, 400) > W) { out.push(line); line = word; } else line = next;
+    }
+    out.push(line);
+  }
+  return out;
+}
+for (const nd of all) {
+  if (nd.ref) nd.sub = '↗ ' + byId[nd.ref].title;
+  nd.wL = nd.lines.map(l => tw(l)); nd.wT = Math.max(...nd.wL);
+  if (nd.note) { // wrap to the widest measure whose block still fits the note's shape
+    const aspect = nd.h / nd.w;
+    for (const W of [30, 36, 42, 50, 58, 68, 80, 95, 115]) {
+      nd.body = wrap(nd.note, W);
+      if (0.9 / W * (1.62 * nd.lines.length + 0.5 + 1.32 * nd.body.length) <= 0.86 * aspect && 1.35 * nd.wT <= W) break;
+    }
+  } else if (nd.detail) nd.body = nd.sub && !nd.ref && nd.detail[0] !== nd.sub ? [nd.sub, ...nd.detail] : nd.detail; // the short line stays, above the detail
+  if (nd.body) nd.wB = Math.max(...nd.body.map(l => tw(l, 400)));
+}
+
+// ---------- drawing ----------
+function rr(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function shapePath(nd) {
+  const x = nd.sx, y = nd.sy, w = nd.sw, h = nd.sh;
+  if (nd.shape === 'diamond') { ctx.beginPath(); ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w, y + h / 2); ctx.lineTo(x + w / 2, y + h); ctx.lineTo(x, y + h / 2); ctx.closePath(); }
+  else if (nd.shape === 'cylinder') { const ry = Math.min(h * 0.13, 12); ctx.beginPath(); ctx.ellipse(x + w / 2, y + ry, w / 2, ry, 0, Math.PI, 0); ctx.lineTo(x + w, y + h - ry); ctx.ellipse(x + w / 2, y + h - ry, w / 2, ry, 0, 0, Math.PI); ctx.closePath(); }
+  else rr(x, y, w, h, clamp(w * 0.07, 2, 12));
+}
+function exitPoint(nd, cx, cy, dx, dy) {
+  let t = Infinity;
+  if (dx > 0) t = Math.min(t, (nd.sx + nd.sw - cx) / dx); else if (dx < 0) t = Math.min(t, (nd.sx - cx) / dx);
+  if (dy > 0) t = Math.min(t, (nd.sy + nd.sh - cy) / dy); else if (dy < 0) t = Math.min(t, (nd.sy - cy) / dy);
+  const L = Math.hypot(dx, dy); t = Math.max(0, t) + 3 / L;
+  return [cx + dx * t, cy + dy * t];
+}
+function clipSeg(p0, p1, x0, y0, x1, y1) {
+  let t0 = 0, t1 = 1; const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+  for (const [p, q] of [[-dx, p0[0] - x0], [dx, x1 - p0[0]], [-dy, p0[1] - y0], [dy, y1 - p0[1]]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+  }
+  return [[p0[0] + dx * t0, p0[1] + dy * t0], [p0[0] + dx * t1, p0[1] + dy * t1]];
+}
+function reps(nd) { // the boxes standing in for nd at this zoom; weights sum to 1 across a fade
+  const out = [], p = nd.path;
+  for (let i = 0; i < p.length; i++) {
+    const nv = i + 1 < p.length ? p[i + 1].vis : 0, w = p[i].vis - nv;
+    if (w > 0.02) out.push([p[i], w]);
+    if (nv <= 0) break;
+  }
+  return out;
+}
+function relName(nd, other) {
+  let i = 0; while (i < nd.path.length - 1 && i < other.path.length && nd.path[i] === other.path[i]) i++;
+  return nd.path.slice(i).map(x => x.title).join(' › ');
+}
+function arrowHead(x, y, ux, uy, s) {
+  ctx.beginPath(); ctx.moveTo(x, y);
+  ctx.lineTo(x - ux * s - uy * s * 0.5, y - uy * s + ux * s * 0.5); ctx.lineTo(x - ux * s + uy * s * 0.5, y - uy * s - ux * s * 0.5);
+  ctx.closePath(); ctx.fill();
+}
+
+// The whole route of an arrow between two boxes, in screen space. The two boxes meet at a
+// container L. Between L's two children the route is the one layout made (L.routes). On each side,
+// every open container the arrow has to leave contributes a piece from the box inside it to its port.
+function pieces(nd, L, group, pts) {
+  for (let n = nd; n.parent !== L; n = n.parent) {
+    const X = n.parent, r = X.xr && X.xr[group] && X.xr[group].r[n.id]; if (!r) return false;
+    const u = X.sw / X.iw; for (const p of r) pts.push([X.sx + p[0] * u, X.sy + p[1] * u]);
+  }
+  return true;
+}
+function crossPath(a, b, gkey) {
+  let n = 0; while (a.path[n] === b.path[n]) n++;
+  const L = a.path[n - 1], A = a.path[n], B = b.path[n], key = A.id + '>' + B.id;
+  if (!L.routes) return null;
+  if (!L.rk) L.rk = {};
+  if (!(key in L.rk)) L.rk[key] = L.routes[key] || L.routes[Object.keys(L.routes).find(q => q.startsWith(key + '#'))] || null;
+  const route = (A === a && B === b && L.routes[gkey]) || L.rk[key]; if (!route) return null;
+  const up = [], down = [];
+  if (!pieces(a, L, 'o:' + B.id, up) || !pieces(b, L, 'i:' + A.id, down)) return null;
+  const u = L.sw / L.iw, all = up.concat(route.p.map(p => [L.sx + p[0] * u, L.sy + p[1] * u]), down.reverse()), pts = [all[0]];
+  for (let i = 1; i < all.length; i++) { const q = pts[pts.length - 1]; if (Math.abs(q[0] - all[i][0]) + Math.abs(q[1] - all[i][1]) > 0.3) pts.push(all[i]); }
+  return pts.length > 1 ? { pts, L, l: route.l, m: route.m } : null;
+}
+
+let pills = [], focus = root, lastFocus = null, hot = null; // hot: the box being pointed at
+const still = matchMedia('(prefers-reduced-motion:reduce)').matches;
+function draw() {
+  raf = 0;
+  if (anim) anim();
+  const T = performance.now(), T0 = 0.34, T1 = 0.46;
+  for (const n in ta) { // a tag fades in and out, and glows for a moment when it comes on
+    const want = off.has(n) ? 0 : 1, step = Math.min(1, (T - (taAt || T)) / 220);
+    if (ta[n] !== want) { ta[n] = Math.abs(want - ta[n]) < 0.02 ? want : ta[n] + (want - ta[n]) * Math.max(0.12, step); req(); }
+    else if (T - lit[n] < 1600) req();
+  }
+  taAt = T;
+
+  // level of detail: a container opens by how much of the viewport it covers, nothing else
+  for (const nd of all) {
+    nd.sx = nd.ax * k + tx; nd.sy = nd.ay * k + ty; nd.sw = nd.aw * k; nd.sh = nd.ah * k;
+    nd.t = nd.children ? (nd === root || nd.group ? 1 : smooth((Math.max(nd.sw / vw, nd.sh / vh) - T0) / (T1 - T0))) : 0;
+    nd.vis = (nd.parent ? Math.min(nd.parent.vis, nd.parent.t) : 1) * (nd.state ? ta[nd.state] : 1) * (nd.until ? 1 - ta[nd.until] : 1);
+    nd.on = nd.vis > 0 && nd.sx < vw && nd.sy < vh && nd.sx + nd.sw > 0 && nd.sy + nd.sh > 0;
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalAlpha = 1; ctx.fillStyle = C.bg; ctx.fillRect(0, 0, vw, vh);
+
+  // pass 1: frames of open containers
+  for (const nd of all) if (nd.on && nd.t > 0 && nd !== root) {
+    const c = colOf(nd);
+    ctx.globalAlpha = nd.vis;
+    rr(nd.sx, nd.sy, nd.sw, nd.sh, clamp(nd.sw * 0.02, 6, 16));
+    ctx.fillStyle = C.panel; ctx.fill(); ctx.fillStyle = rgba(c, C.tint * 0.4); ctx.fill();
+    ctx.strokeStyle = rgba(c, 0.55); ctx.lineWidth = 1.25; if (nd.st) ctx.setLineDash([8, 5]);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // pass 2: arrows, aggregated to whatever is visible
+  const agg = new Map();
+  E.forEach((e, i) => {
+    if ((e.a.st && ta[e.a.st] < 0.5) || (e.b.st && ta[e.b.st] < 0.5) || (e.tag && ta[e.tag] < 0.5)) return;
+    if ((e.until && ta[e.until] >= 0.5) || (e.a.ut && ta[e.a.ut] >= 0.5) || (e.b.ut && ta[e.b.ut] >= 0.5)) return;
+    if (e.a === e.b) { if (e.a.vis > 0.6 && e.a.on) agg.set('self' + i, { a: e.a, b: e.a, alpha: e.a.vis, es: new Set([i]) }); return; }
+    for (const [na, wa] of reps(e.a)) for (const [nb, wb] of reps(e.b)) {
+      if (na === nb || na.path.includes(nb) || nb.path.includes(na)) continue;
+      // an arrow between a reference box and the thing it refers to is not drawn while the reference
+      // box is on show (the box already says it); it still counts once the box's container is closed
+      const rf = na === e.a && na.ref ? [byId[na.ref], nb] : nb === e.b && nb.ref ? [byId[nb.ref], na] : null;
+      if (rf && (rf[0] === rf[1] || rf[0].path.includes(rf[1]) || rf[1].path.includes(rf[0]))) continue;
+      let key = na.id + '>' + nb.id;
+      const P = na.parent;
+      if (P && P === nb.parent && na === e.a && nb === e.b && P.routes[key + '#' + i]) key += '#' + i; // its own laid-out route
+      let g = agg.get(key);
+      if (!g) agg.set(key, g = { key, a: na, b: nb, alpha: 0, es: new Set() });
+      g.alpha = Math.max(g.alpha, wa * wb); g.es.add(i);
+    }
+  });
+  pills = []; let arrows = 0; const midLabels = [], stubs = [];
+  // The level being read is the deepest open container that fills most of the screen. Arrows that
+  // leave it are drawn quietly. Pointing at a box (or at an edge label) lights its arrows and dims the rest.
+  let here = root;
+  for (let go = true; go;) {
+    go = false;
+    for (const c of here.children || []) if (c.children && c.vis > 0 && c.t >= 0.5 && c.sx < vw / 2 && c.sy < vh / 2 && c.sx + c.sw > vw / 2 && c.sy + c.sh > vh / 2 && (c.group || Math.max(c.sw / vw, c.sh / vh) >= 0.6)) { here = c; go = true; break; }
+  }
+  while (here.group && here !== root) here = here.parent;
+  const inHere = x => x.path.includes(here), touches = x => x === hot || x.path.includes(hot);
+  const near = new Set(); // the boxes at the other end of a lit arrow
+  let moving = false;
+  if (hot && !(hot.vis > 0) && !anim) { hot = null; if (pinned) { pinned = false; panel(); } }
+  for (const g of agg.values()) {
+    const a = g.a, b = g.b, es = [...g.es].map(i => E[i]);
+    if (!a.on && !b.on) continue;
+    // a merged arrow takes the worst style among the arrows it stands for, and says so
+    let st = es.reduce((w, e) => STY[e.style].rank > w.rank ? STY[e.style] : w, { rank: -1, w: 1.3 });
+    // an arrow that exists only because of a tag is drawn in the tag's colour, so a proposed link stands out
+    const worst = es.filter(e => STY[e.style] === st).length;
+    const tg = es.every(e => e.tag) ? es[0].tag : null;
+    if (tg) st = { ...st, c: STATES[tg].c, dash: st.dash || [7, 5], w: Math.max(st.w, 1.7) };
+    let col = st.c || C.line; if (C.dark && st.c) col = col.map(v => Math.round(v + (255 - v) * 0.24)); // on a dark page a saturated blue or purple line is hard to see: lift it
+    const labels = new Set(es.map(e => e.label).filter(Boolean));
+    const text = es.length === 1 ? es[0].label : (labels.size === 1 && es.every(e => e.label) ? `${[...labels][0]} ×${es.length}` : `${es.length} links`)
+      + (st.label && st.c ? (worst === es.length ? ` · all ${st.label}` : ` · ${worst} ${st.label}`) : '');
+    const lit = hot && (touches(a) || touches(b)), away = !(inHere(a) && inHere(b));
+    const quiet = only.size && !es.some(e => only.has(e.style)) ? 0.13 : 1; // not one of the styles picked in the legend
+    if (lit) { near.add(a); near.add(b); col = col.map((v, i) => Math.round(v + (C.hi[i] - v) * (st.c ? 0.25 : 0.6))); } // a lit line is brighter as well as thicker; a plain grey one most of all
+    const la = quiet < 1 ? 0 : g.alpha * (hot ? (lit ? 1 : 0.12) : 1); // labels and edge labels
+    ctx.globalAlpha = quiet * g.alpha * (hot ? (lit ? 1 : 0.1) : away && !only.size ? 0.3 : 1); ctx.lineWidth = st.w + (lit ? 1.3 : 0) + (C.dark ? 0.35 : 0); ctx.strokeStyle = ctx.fillStyle = rgba(col, 1); ctx.setLineDash(st.dash || []);
+    if (a === b) { // self loop, drawn over the top edge
+      const x0 = a.sx + a.sw * 0.5, x1 = a.sx + a.sw * 0.82, y = a.sy, hgt = clamp(a.sh * 0.3, 8, 22);
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0, y - hgt); ctx.lineTo(x1, y - hgt); ctx.lineTo(x1, y - 2); ctx.stroke();
+      ctx.setLineDash([]); arrowHead(x1, y - 1, 0, 1, 7); arrows++;
+      midLabels.push({ x: (x0 + x1) / 2, y: y - hgt, len: 1e9, text, alpha: la, lit, col: st.c });
+      continue;
+    }
+    const cp = crossPath(a, b, g.key);
+    if (cp) { // a laid-out route: right angles, round every box, through each container's port
+      let pts = cp.pts, cut = null;
+      if (!a.on || !b.on) { // one end is off-screen: follow the route to the edge of the view and say where it goes
+        const seq = a.on ? pts : pts.slice().reverse(), out = [seq[0]];
+        for (let i = 0; i < seq.length - 1; i++) {
+          const c = clipSeg(seq[i], seq[i + 1], 14, TOP, vw - 14, vh - 46);
+          if (!c) { if (i === 0) out.length = 0; break; }
+          if (i === 0) out[0] = c[0];
+          out.push(c[1]);
+          if (Math.abs(c[1][0] - seq[i + 1][0]) + Math.abs(c[1][1] - seq[i + 1][1]) > 0.5) { cut = c[1]; break; }
+        }
+        if (out.length < 2) { ctx.setLineDash([]); continue; }
+        pts = a.on ? out : out.reverse();
+      }
+      const n = pts.length, seg = i => Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < n - 1; i++) ctx.arcTo(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], Math.min(6, seg(i - 1) / 2, seg(i) / 2));
+      ctx.lineTo(pts[n - 1][0], pts[n - 1][1]);
+      // a line at full strength is cased in the background colour, so where two cross one plainly passes over the other
+      if (ctx.globalAlpha > 0.85) { const dd = ctx.getLineDash(), w0 = ctx.lineWidth; ctx.setLineDash([]); ctx.strokeStyle = C.panel; ctx.lineWidth = w0 + 5; ctx.stroke(); ctx.strokeStyle = rgba(col, 1); ctx.lineWidth = w0; ctx.setLineDash(dd); }
+      ctx.stroke();
+      if (lit && !still) { // the lit box's arrows move in the direction they point
+        // dark dots on a plain line, which is itself near white when lit
+        ctx.setLineDash([2, 13]); ctx.lineDashOffset = -(T / 26) % 15; ctx.strokeStyle = st.c ? C.ink : C.bg; ctx.lineWidth += 0.4; ctx.globalAlpha *= 0.85; ctx.stroke();
+        ctx.lineDashOffset = 0; ctx.strokeStyle = rgba(col, 1); moving = true;
+      }
+      ctx.setLineDash([]);
+      arrows++;
+      if (b.on && !st.noHead) { const L = seg(n - 2) || 1; arrowHead(pts[n - 1][0], pts[n - 1][1], (pts[n - 1][0] - pts[n - 2][0]) / L, (pts[n - 1][1] - pts[n - 2][1]) / L, clamp(Math.min(b.sw, b.sh) * 0.09, 4, 8)); }
+      if (g.alpha < 0.6) continue; // mid-fade arrows stay as faint lines: no label, no stub
+      if (cut) { // arrows to the same off-screen box that leave the view together share one label
+        const node = a.on ? b : a;
+        const near = d => q => q.out === a.on && Math.hypot(q.at[0] - cut[0], q.at[1] - cut[1]) < d, twin = stubs.find(q => q.node !== node && near(8)(q));
+        const same = stubs.find(q => q.node === node && near(90)(q)), share = twin || same;
+        if (share && lit) { share.alpha = la; share.lit = true; } // a label shared with a lit arrow is lit
+        if (twin) twin.more = (twin.more || 0) + 1; // a second box at the end of the very same line: one label, counted
+        else if (!same) stubs.push({ at: cut, node, other: a.on ? a : b, out: a.on, alpha: la, lit, col: st.c });
+      } else if (text) {
+        const pu = cp.L.sw / cp.L.iw, l = cp.l && [cp.L.sx + cp.l[0] * pu, cp.L.sy + cp.l[1] * pu];
+        if (l && l[0] > 20 && l[0] < vw - 20 && l[1] > 56 && l[1] < vh - 50) { if (pu >= 0.66) midLabels.push({ x: l[0], y: l[1], len: 1e9, text, alpha: la, lit, col: st.c, f: Math.min(10.5, 10.5 * pu) }); } // the spot the layout kept free for it
+        else if (cp.m) midLabels.push({ x: cp.L.sx + cp.m[0] * pu, y: cp.L.sy + cp.m[1] * pu, len: cp.m[2] * pu, text, alpha: la, lit, col: st.c }); // its own stretch, off the shared trunk
+        else { // the longest stretch where the label is clear of the boxes beside the line; failing that, the longest stretch
+          const lw = text.length * 6.2 + 14, lh = 16, kids = cp.L.children || [];
+          const clearAt = (x, y) => !kids.some(c => c.on && x - lw / 2 < c.sx + c.sw + 2 && c.sx < x + lw / 2 + 2 && y - lh / 2 < c.sy + c.sh + 2 && c.sy < y + lh / 2 + 2);
+          let best = 0, bi = 0, spot = null;
+          for (let i = 0; i < n - 1; i++) {
+            const len = seg(i); if (len > best) { best = len; bi = i; }
+            if (len < 24 || (spot && len <= spot[2])) continue;
+            for (const t of [0.5, 0.35, 0.65, 0.2, 0.8]) { const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, y = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t; if (clearAt(x, y)) { spot = [x, y, len]; break; } }
+          }
+          if (spot) midLabels.push({ x: spot[0], y: spot[1], len: spot[2], text, alpha: la, lit, col: st.c });
+          else midLabels.push({ x: (pts[bi][0] + pts[bi + 1][0]) / 2, y: (pts[bi][1] + pts[bi + 1][1]) / 2, len: best, text, alpha: la, lit, col: st.c });
+        }
+      }
+      continue;
+    }
+    let ax = a.sx + a.sw / 2, ay = a.sy + a.sh / 2, bx = b.sx + b.sw / 2, by = b.sy + b.sh / 2;
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy); if (L < 1) { ctx.setLineDash([]); continue; }
+    if (agg.has(b.id + '>' + a.id)) { const ox = -dy / L * 5, oy = dx / L * 5; ax += ox; ay += oy; bx += ox; by += oy; }
+    const p0 = exitPoint(a, ax, ay, dx, dy), p1 = exitPoint(b, bx, by, -dx, -dy);
+    if ((p1[0] - p0[0]) * dx + (p1[1] - p0[1]) * dy <= 0) { ctx.setLineDash([]); continue; }
+    let q0 = p0, q1 = p1, stub = null;
+    if (!a.on || !b.on) { // one end is off-screen: cut at the viewport edge and say where it goes
+      const c = clipSeg(p0, p1, 14, TOP, vw - 14, vh - 46); if (!c) { ctx.setLineDash([]); continue; }
+      q0 = c[0]; q1 = c[1];
+      stub = a.on ? { at: q1, node: b, other: a, out: true } : { at: q0, node: a, other: b, out: false };
+    }
+    arrows++;
+    ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]); ctx.stroke(); ctx.setLineDash([]);
+    if (b.on && !st.noHead) arrowHead(q1[0], q1[1], dx / L, dy / L, 7.5);
+    if (g.alpha < 0.6) continue; // mid-fade arrows stay as faint lines: no label, no stub
+    if (stub) stubs.push({ ...stub, alpha: la, lit, col: st.c });
+    else if (text) midLabels.push({ x: (q0[0] + q1[0]) / 2, y: (q0[1] + q1[1]) / 2, len: Math.hypot(q1[0] - q0[0], q1[1] - q0[1]), text, alpha: la, lit, col: st.c });
+  }
+  ctx.setLineDash([]);
+  ctx.font = `600 10.5px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const shown = []; midLabels.sort((p, q) => (q.lit ? 1 : 0) - (p.lit ? 1 : 0));
+  for (const m of midLabels) {
+    const f = m.f || 10.5; ctx.font = `600 ${f}px ${FONT}`;
+    const w = ctx.measureText(m.text).width + f, h = f * 1.5; if ((m.len < w + 12 && !m.lit) || m.alpha < 0.3) continue;
+    if (!m.lit && shown.some(q => Math.abs(q.x - m.x) < (q.w + w) / 2 + 3 && Math.abs(q.y - m.y) < (q.h + h) / 2 + 2)) continue; // never one label on another
+    shown.push({ x: m.x, y: m.y, w, h });
+    ctx.globalAlpha = m.alpha; ctx.fillStyle = C.bg; rr(m.x - w / 2, m.y - h / 2, w, h, 5); ctx.fill();
+    ctx.fillStyle = m.col ? rgba(m.col, 1) : C.muted; ctx.fillText(m.text, m.x, m.y + 0.5);
+  }
+  ctx.textBaseline = 'alphabetic';
+
+  // pass 3: closed boxes and every label
+  let boxes = 0;
+  for (const nd of all) {
+    if (!nd.on || nd.sw < 3 || nd === root) continue;
+    boxes++;
+    // a pinned box stands out: boxes its arrows do not reach step back
+    const vis0 = nd.vis, aside = pinned && hot && nd.t < 0.5 && nd !== hot && !near.has(nd) && !nd.path.includes(hot) && !hot.path.includes(nd);
+    if (aside) nd.vis *= 0.32;
+    if (nd.t < 1) {
+      const c = colOf(nd);
+      ctx.globalAlpha = nd.vis * (1 - nd.t); ctx.lineWidth = pinned && nd === hot ? 2.6 : 1.3; ctx.strokeStyle = rgba(c, 0.9);
+      if (nd.shape === 'actor') { // stick figure in the top of the box
+        const cx = nd.sx + nd.sw / 2, r = Math.min(nd.sw * 0.2, nd.sh * 0.1), y0 = nd.sy + r + 1, y1 = nd.sy + nd.sh * 0.58;
+        ctx.beginPath(); ctx.arc(cx, y0, r, 0, Math.PI * 2); ctx.fillStyle = rgba(c, 0.45); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, y0 + r); ctx.lineTo(cx, y1 - r * 1.6); ctx.moveTo(cx - r * 1.5, y0 + r * 2); ctx.lineTo(cx + r * 1.5, y0 + r * 2);
+        ctx.moveTo(cx, y1 - r * 1.6); ctx.lineTo(cx - r * 1.3, y1); ctx.moveTo(cx, y1 - r * 1.6); ctx.lineTo(cx + r * 1.3, y1); ctx.stroke();
+      } else {
+        shapePath(nd);
+        ctx.fillStyle = C.box; ctx.fill(); ctx.fillStyle = rgba(c, nd.note ? C.tint * 1.5 : nd.st ? C.tint * 1.7 : C.tint); ctx.fill();
+        if (nd.st && !nd.note) ctx.setLineDash([7, 4]); else if ((KIND[nd.kind] || {}).dashed) ctx.setLineDash([5, 4]); else if (nd.ref) ctx.setLineDash([2, 3]);
+        if (nd.st) { const fresh = Math.max(0, 1 - (T - lit[nd.st]) / 1600); ctx.shadowColor = rgba(c, 0.5 + 0.5 * fresh); ctx.shadowBlur = 10 + 26 * fresh; ctx.lineWidth = 1.5 + fresh; }
+        ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        if (nd.shape === 'cylinder') { const ry = Math.min(nd.sh * 0.13, 12); ctx.beginPath(); ctx.ellipse(nd.sx + nd.sw / 2, nd.sy + ry, nd.sw / 2, ry, 0, 0, Math.PI); ctx.stroke(); }
+      }
+    }
+    label(nd);
+    nd.vis = vis0;
+  }
+
+  // pass 4: off-screen stubs, on top of everything, clickable
+  ctx.font = `500 11px ${FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  // Labels that would overlap along the top or bottom edge move apart sideways, each staying over
+  // its own line; only if there is no room for that do they stack.
+  const tags = stubs.map(s => {
+    // a label on the left or right edge is kept short enough for the gutter: the nearest names go first
+    const side = s.at[0] < 16 || s.at[0] > vw - 16, parts = relName(s.node, s.other).split(' › '), h = 20;
+    const say = () => (s.out ? '→ ' : '← ') + parts.join(' › ') + (s.more ? ` +${s.more}` : '');
+    let text = say(), w = ctx.measureText(text).width + 16;
+    while (side && parts.length > 1 && w > gutter() + 60) { parts.shift(); text = say(); w = ctx.measureText(text).width + 16; }
+    return { s, text, w, h, x: clamp(s.at[0], 14 + w / 2, vw - 14 - w / 2), y: clamp(s.at[1], TOP + h / 2, vh - 46 - h / 2) };
+  });
+  for (const edge of [TOP + 10, vh - 46 - 10]) {
+    const row = tags.filter(t => Math.abs(t.y - edge) < 1).sort((p, q) => p.s.at[0] - q.s.at[0]);
+    const reach = t => Math.max(0, t.w / 2 - 12); // how far a label may sit off its line and still cover it
+    for (let pass = 0; pass < 4; pass++) for (let i = 0; i < row.length - 1; i++) {
+      const a = row[i], b = row[i + 1], over = (a.w + b.w) / 2 + 6 - (b.x - a.x); if (over <= 0) continue;
+      const la = Math.max(0, Math.min(a.x - (a.s.at[0] - reach(a)), a.x - (14 + a.w / 2))), rb = Math.max(0, Math.min(b.s.at[0] + reach(b) - b.x, vw - 14 - b.w / 2 - b.x));
+      const da = Math.min(la, Math.max(over / 2, over - rb)), db = Math.min(rb, over - da);
+      a.x -= da; b.x += db;
+    }
+  }
+  for (const t of tags) {
+    const { s, text, w, h } = t; let { x, y } = t;
+    const dir = y > vh / 2 ? -1 : 1;
+    const pl = here !== root && here.plate; // the title of the container being looked at: a label moves sideways off it
+    if (pl && x - w / 2 < pl[0] + pl[2] + 6 && x + w / 2 > pl[0] - 6 && y - h / 2 < pl[1] + pl[3] + 3 && y + h / 2 > pl[1] - 3) x = Math.min(vw - 14 - w / 2, pl[0] + pl[2] + 10 + w / 2);
+    for (let i = 0; i < 10 && pills.some(p => Math.abs(p.x - x) < (p.w + w) / 2 + 4 && Math.abs(p.y - y) < h + 2); i++) y += dir * (h + 3);
+    pills.push({ x, y, w, h, node: s.node });
+    ctx.globalAlpha = s.alpha * (hot || s.lit ? 1 : 0.8);
+    rr(x - w / 2, y - h / 2, w, h, 10); ctx.fillStyle = C.pill; ctx.fill();
+    ctx.strokeStyle = rgba(s.col || C.line, 0.9); ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = C.ink; ctx.fillText(text, x, y + 0.5);
+  }
+  ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
+
+  // where am I: the deepest open container under the middle of the screen
+  focus = root;
+  for (let go = true; go;) {
+    go = false;
+    for (const c of focus.children || []) if (c.children && c.vis > 0 && c.t >= 0.5 && c.sx < vw / 2 && c.sy < vh / 2 && c.sx + c.sw > vw / 2 && c.sy + c.sh > vh / 2) { focus = c; go = true; break; }
+  }
+  if (focus !== lastFocus) { lastFocus = focus; crumbs(); remember(); }
+  const z = k / kfit;
+  $('stats').textContent = `${boxes} of ${all.length - 1} boxes · ${arrows} of ${E.length} arrows · ${(performance.now() - T).toFixed(1)} ms · ${z < 10 ? z.toFixed(1) : Math.round(z)}×`;
+  if (anim || moving) req();
+}
+
+function label(nd) {
+  const lip = nd.shape === 'cylinder' ? Math.min(nd.sh * 0.13, 12) * 2 : 0, by = nd.sy + lip, bh = nd.sh - lip;
+  const t = nd.t, cx = nd.sx + nd.sw / 2, L = nd.lines, nL = L.length, actor = nd.shape === 'actor', hint = !!nd.children;
+  // compact: the title, centred; more appears only when there is room to read it
+  const rows = nL * 1.2 + (nd.sub ? 0.85 : 0) + (hint ? 1 : 0);
+  const fc = Math.min(22, nd.sw * (nd.shape === 'diamond' ? 0.6 : actor ? 1.1 : 0.86) / nd.wT, bh * (nd.shape === 'diamond' ? 0.5 : actor ? 0.36 : 0.7) / rows);
+  const top = actor ? nd.sy + nd.sh * 0.62 : by + bh / 2 - rows * fc / 2;
+  let m = 0, fd = 0, ft = fc, dtop = 0;
+  if (nd.body && t < 1) { // detailed: title plus body lines
+    const nB = nd.body.length, blk = 1.62 * nL + 0.5 + 1.32 * nB;
+    fd = Math.min(13.5, bh * (hint ? 0.72 : 0.86) / blk, nd.sw * 0.9 / nd.wB, nd.sw * 0.9 / (1.35 * nd.wT));
+    m = smooth((fd - 6.2) / 1.6); ft = 1.35 * fd; dtop = by + (bh * (hint ? 0.86 : 1) - fd * blk) / 2;
+  }
+  const band = nd.children && nd.ih ? Math.min(...nd.children.map(c => c.y)) * nd.sh / nd.ih : Infinity; // the room above the first box inside
+  const f = lerp(fc, ft, m), fh = Math.min(clamp(nd.sw * 0.018, 12, 15), band * 0.46), hp = Math.min(clamp(nd.sw * 0.02, 10, 18), band * 0.2), left = nd.sx + nd.sw * 0.05;
+  const lx = i => nd.note ? lerp(cx - nd.wL[i] * f / 2, left, m) : cx - nd.wL[i] * f / 2;
+  const ly = i => lerp(top + (i * 1.2 + 0.95) * fc, dtop + (i * 1.2 + 0.95) * ft, m);
+  if (t > 0.5) { // an open container's title sits on a plate, so an arrow coming in over the top edge never strikes through it
+    ctx.font = `600 ${fh}px ${FONT}`; let hw = ctx.measureText(nd.title).width;
+    if (nd.sub) { ctx.font = `400 ${fh * 0.9}px ${FONT}`; hw += 9 + ctx.measureText(nd.sub).width; }
+    nd.plate = [nd.sx + hp - 6, nd.sy + hp - 3, hw + 12, fh + 8];
+    ctx.globalAlpha = nd.vis * (t - 0.5) * 2; rr(nd.sx + hp - 6, nd.sy + hp - 3, hw + 12, fh + 8, 5);
+    ctx.fillStyle = C.panel; ctx.fill(); ctx.fillStyle = rgba(colOf(nd), C.tint * 0.4); ctx.fill();
+  }
+  ctx.fillStyle = C.ink; ctx.textAlign = 'left';
+  if (nL === 1) { // one line: it slides from the middle of the box to the header as the box opens
+    const ff = lerp(f, fh, t);
+    if (ff >= 5.5) { ctx.globalAlpha = nd.vis; ctx.font = `600 ${ff}px ${FONT}`; ctx.fillText(L[0], lerp(lx(0), nd.sx + hp, t), lerp(ly(0), nd.sy + hp + fh * 0.8, t)); }
+  } else {
+    if (t < 1 && f >= 5.5) { ctx.globalAlpha = nd.vis * (1 - t); ctx.font = `600 ${f}px ${FONT}`; for (let i = 0; i < nL; i++) ctx.fillText(L[i], lx(i), ly(i)); }
+    if (t > 0) { ctx.globalAlpha = nd.vis * t; ctx.font = `600 ${fh}px ${FONT}`; ctx.fillText(nd.title, nd.sx + hp, nd.sy + hp + fh * 0.8); }
+  }
+  if (t > 0.5 && nd.sub) {
+    ctx.font = `600 ${fh}px ${FONT}`; const hw = ctx.measureText(nd.title).width;
+    ctx.globalAlpha = nd.vis * (t - 0.5) * 2; ctx.fillStyle = C.muted; ctx.font = `400 ${fh * 0.9}px ${FONT}`; ctx.fillText(nd.sub, nd.sx + hp + hw + 9, nd.sy + hp + fh * 0.8);
+  }
+  if (t >= 1) return;
+  const fs = nd.sub ? Math.min(fc * 0.62, nd.sw * 0.88 / tw(nd.sub, 400)) : 0, mb = clamp(2 * m - 1, 0, 1), ms = clamp(2 * m, 0, 1);
+  if (nd.sub && fs >= 6 && ms < 1) { ctx.globalAlpha = nd.vis * (1 - t) * (1 - ms); ctx.fillStyle = nd.ref ? rgba(colOf(nd), 1) : C.muted; ctx.font = `400 ${fs}px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(nd.sub, cx, top + nL * 1.2 * fc + fs * 1.05); }
+  if (mb > 0) {
+    ctx.globalAlpha = nd.vis * (1 - t) * mb; ctx.fillStyle = nd.note ? C.ink : C.muted; ctx.font = `400 ${fd}px ${FONT}`; ctx.textAlign = nd.note ? 'left' : 'center';
+    const y0 = dtop + nL * 1.62 * fd + 0.5 * fd;
+    nd.body.forEach((line, j) => ctx.fillText(line, nd.note ? left : cx, y0 + (j + 0.9) * 1.32 * fd));
+  }
+  const fi = Math.min(12, nd.sh * 0.1);
+  if (hint && fi >= 6.5) { ctx.globalAlpha = nd.vis * (1 - t); ctx.font = `600 ${fi}px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = rgba(colOf(nd), 1); ctx.fillText(`${nd.children.length} inside ⊕`, cx, nd.sy + nd.sh - fi * 0.75); }
+}
+
+// ---------- chrome around the canvas ----------
+function crumbs() {
+  const el = $('crumbs'), lg = $('legend');
+  if (lg) { const t = Math.max(52, lg.offsetTop + lg.offsetHeight + 8); if (t !== TOP) { TOP = t; req(); } }
+  el.style.maxWidth = Math.max(160, vw - (lg ? lg.offsetWidth : 0) - 44) + 'px'; // never under the legend
+  for (let keep = 3; keep >= 1; keep--) { // deep paths keep the last three levels, or fewer if that is all there is room for
+    el.textContent = '';
+    const skip = Math.max(0, focus.path.length - keep);
+    focus.path.forEach((nd, i) => {
+      if (i < skip) return;
+      if (i) { const s = document.createElement('span'); s.textContent = i === skip ? '… ›' : '›'; el.appendChild(s); }
+      const b = document.createElement('button'); b.textContent = nd.title; b.onclick = () => fit(nd); el.appendChild(b);
+    });
+    if (el.scrollWidth <= el.clientWidth + 1) break;
+  }
+}
+const legend = $('legend');
+const picks = {};
+let showAll = null; // the button that ends a legend filter; on show only while one is on
+function pick(name, on) { // a legend entry is a filter: pick one or more arrow styles and the rest go faint
+  if (!picks[name]) return;
+  if (on) only.add(name); else only.delete(name);
+  for (const [n, b] of Object.entries(picks)) { b.classList.toggle('sel', only.has(n)); b.classList.toggle('dim', only.size > 0 && !only.has(n)); b.setAttribute('aria-pressed', only.has(n)); }
+  if (showAll) showAll.hidden = !only.size;
+  req(); remember();
+}
+for (const [name, s] of Object.entries(STY)) if (s.label && s.c) {
+  const b = picks[name] = document.createElement('button'), i = document.createElement('i');
+  b.className = 'sty'; b.title = `Show only ${s.label} arrows (click again to clear)`;
+  i.style.borderColor = rgba(s.c, 1); i.style.borderTopStyle = !s.dash ? 'solid' : s.dash[0] < 4 ? 'dotted' : 'dashed';
+  b.append(i, s.label); b.onclick = () => pick(name, !only.has(name)); legend.appendChild(b);
+}
+const toggles = {};
+function setState(name, shown) {
+  if (!STATES[name]) return;
+  if (shown) { if (off.has(name)) lit[name] = performance.now(); off.delete(name); } else off.add(name);
+  const b = toggles[name]; b.classList.toggle('off', !shown); b.setAttribute('aria-pressed', shown); b.title = `${STATES[name].label}: ${shown ? 'shown, click to hide' : 'hidden, click to show'} (n next, p back)`; req();
+  if (ready) { panel(); remember(); }
+}
+for (const [name, s] of Object.entries(STATES)) {
+  const b = toggles[name] = document.createElement('button');
+  b.className = 'toggle'; b.style.setProperty('--tc', rgba(s.c, 1)); b.style.borderColor = rgba(s.c, 0.8); b.style.background = rgba(s.c, 0.14);
+  b.append(document.createElement('b'), s.label); b.onclick = () => setState(name, off.has(name));
+  legend.appendChild(b); setState(name, s.shown !== false); if (s.shown === false) ta[name] = 0;
+}
+if (Object.keys(picks).length) {
+  showAll = document.createElement('button'); showAll.className = 'all'; showAll.textContent = 'Filtered · show all'; showAll.title = 'Only the picked arrow styles are at full strength. Click to show every arrow again (Esc)';
+  showAll.hidden = true; showAll.onclick = () => { for (const n of [...only]) pick(n, false); };
+  legend.insertBefore(showAll, legend.firstChild);
+}
+// stepping through the tags in the order the file declares them: forward switches the next one on, back the last one off
+function step(d) {
+  const names = Object.keys(STATES), x = d > 0 ? names.find(s => off.has(s)) : names.filter(s => !off.has(s)).pop();
+  if (x) setState(x, d > 0);
+}
+if (Object.keys(STATES).length > 1) for (const [t, d, tip] of [['‹', -1, 'Back one step (p)'], ['›', 1, 'Next step (n)']]) {
+  const b = document.createElement('button'); b.className = 'step'; b.textContent = t; b.title = tip; b.onclick = () => step(d); legend.appendChild(b);
+}
+if (!legend.children.length) legend.remove();
+
+// ---------- the panel for a pinned box: what it is, and everything it talks to ----------
+const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
+const info = $('info');
+const live = e => !((e.a.st && off.has(e.a.st)) || (e.b.st && off.has(e.b.st)) || (e.tag && off.has(e.tag)) || (e.until && !off.has(e.until)) || (e.a.ut && !off.has(e.a.ut)) || (e.b.ut && !off.has(e.b.ut)));
+const unpin = () => { hot = null; pinned = false; panel(); req(); };
+const pin = nd => { if (nd.st && off.has(nd.st)) setState(nd.st, true); hot = nd; pinned = true; panel(); fit(nd.parent || root); };
+function panel() {
+  info.textContent = ''; info.hidden = !(pinned && hot); remember();
+  if (info.hidden) return;
+  const me = hot, head = el('div', 'ih'); head.append(el('b', null, me.title)); head.append(el('span', null, me.sub || ''));
+  const x = el('button', 'ix', '×'); x.title = 'Close (Esc)'; x.onclick = unpin; head.append(x); info.append(head);
+  for (const line of me.detail || (me.note ? me.note.split('\n') : [])) info.append(el('p', null, line));
+  if (me.children) { const b = el('button', 'io', `Open · ${me.children.length} inside`); b.onclick = () => { unpin(); jump(me); }; info.append(b); }
+  const inside = n => n === me || n.path.includes(me);
+  for (const [title, out] of [['Goes to', true], ['Comes from', false]]) {
+    const rows = new Map();
+    for (const e of E) {
+      if (!live(e) || inside(e.a) === inside(e.b) || inside(e.a) !== out) continue;
+      const other = out ? e.b : e.a; (rows.get(other) || rows.set(other, []).get(other)).push(e);
+    }
+    if (!rows.size) continue;
+    info.append(el('h4', null, `${title} · ${rows.size}`));
+    for (const [other, es] of rows) {
+      const b = el('button', 'ir'), st = es.reduce((w, e) => (STY[e.style].rank > w.rank ? STY[e.style] : w), { rank: -1 }), dot = el('i');
+      dot.style.background = st.c ? rgba(st.c, 1) : 'var(--muted)';
+      const said = [...new Set(es.map(e => e.label).filter(Boolean))].join(' · ');
+      b.append(dot, el('span', 'in', relName(other, me)), el('span', 'il', [said, st.label && st.c ? st.label : ''].filter(Boolean).join(' — ')));
+      b.title = 'Go there'; b.onclick = () => pin(other); info.append(b);
+    }
+  }
+}
+
+// ---------- find a box by name ----------
+const find = $('find'), findIn = find.querySelector('input'), findOut = find.querySelector('div');
+function search(open) { find.hidden = !open; findIn.value = ''; findOut.textContent = ''; if (open) findIn.focus(); else findIn.blur(); }
+findIn.addEventListener('input', () => {
+  const q = findIn.value.trim().toLowerCase(); findOut.textContent = ''; if (!q) return;
+  const first = n => (n.title.toLowerCase().startsWith(q) ? 0 : n.title.toLowerCase().includes(q) ? 1 : 2);
+  all.filter(n => n !== root && !n.note && `${n.title} ${n.sub || ''} ${n.id}`.toLowerCase().includes(q))
+    .sort((a, b) => first(a) - first(b) || a.path.length - b.path.length).slice(0, 9).forEach(n => {
+      const b = el('button'); b.append(el('b', null, n.title), el('span', null, n.path.slice(1, -1).map(x => x.title).join(' › ') || 'top level'));
+      b.onclick = () => { search(false); pin(n); }; findOut.append(b);
+    });
+});
+findIn.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Escape') search(false);
+  else if (e.key === 'Enter' && findOut.firstChild) findOut.firstChild.click();
+});
+
+// ---------- the address keeps up with the view, so a copied link opens on the same picture ----------
+function remember() {
+  if (!ready) return;
+  const q = [], show = [], hide = [];
+  if (focus !== root) q.push('at=' + focus.id);
+  for (const [n, s] of Object.entries(STATES)) { const on = !off.has(n), def = s.shown !== false; if (on && !def) show.push(n); if (!on && def) hide.push(n); }
+  if (show.length) q.push('show=' + show.join(',')); if (hide.length) q.push('hide=' + hide.join(','));
+  if (pinned && hot) q.push('hot=' + hot.id); // a legend filter is not kept: it dims most of the picture, and coming back to that after a reload looks broken
+  try { history.replaceState(null, '', q.length ? '#' + q.join('&') : location.pathname + location.search); } catch (e) { /* a page opened from a file may refuse: the view still works */ }
+}
+
+// ---------- input ----------
+function hit(x, y) {
+  let cur = root;
+  for (;;) {
+    const c = (cur.children || []).find(c => c.vis > 0.5 && x >= c.sx && y >= c.sy && x <= c.sx + c.sw && y <= c.sy + c.sh);
+    if (!c) return cur;
+    if (c.t < 0.5) return c;
+    cur = c;
+  }
+}
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const d = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+  zoomAt(e.clientX, e.clientY, Math.exp(-d * (e.ctrlKey ? 0.012 : 0.0022)));
+}, { passive: false });
+const ptrs = new Map(); let moved = 0;
+cv.addEventListener('pointerdown', e => {
+  try { cv.setPointerCapture(e.pointerId); } catch (x) { /* a pointer the browser no longer tracks */ }
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size === 1) moved = 0;
+  anim = null; cv.classList.add('drag');
+});
+const point = (x, y) => { // what is under the pointer: an edge label's box, or a closed box
+  const p = pills.find(p => Math.abs(x - p.x) <= p.w / 2 && Math.abs(y - p.y) <= p.h / 2), nd = p ? p.node : hit(x, y);
+  const h = p ? nd : nd !== root && nd.t < 0.5 && !nd.note ? nd : null;
+  if (h !== hot) { hot = h; cv.style.cursor = p || (h && (h.children || h.ref)) ? 'pointer' : ''; req(); }
+};
+cv.addEventListener('pointerleave', () => { if (hot && !pinned) { hot = null; req(); } });
+cv.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) { if (!pinned && e.pointerType !== 'touch') point(e.clientX, e.clientY); return; }
+  const nx = e.clientX, ny = e.clientY;
+  if (ptrs.size === 1) { tx += nx - p[0]; ty += ny - p[1]; moved += Math.abs(nx - p[0]) + Math.abs(ny - p[1]); req(); }
+  else if (ptrs.size === 2) {
+    const o = [...ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+    const d0 = Math.hypot(p[0] - o[0], p[1] - o[1]), d1 = Math.hypot(nx - o[0], ny - o[1]);
+    tx += (nx - p[0]) / 2; ty += (ny - p[1]) / 2; moved += 10;
+    if (d0 > 0) zoomAt((nx + o[0]) / 2, (ny + o[1]) / 2, d1 / d0);
+  }
+  p[0] = nx; p[1] = ny;
+});
+const up = e => {
+  if (!ptrs.delete(e.pointerId)) return;
+  if (!ptrs.size) cv.classList.remove('drag');
+  if (e.type === 'pointerup' && moved < 5) {
+    const p = pills.find(p => Math.abs(e.clientX - p.x) <= p.w / 2 && Math.abs(e.clientY - p.y) <= p.h / 2);
+    if (p) return jump(p.node);
+    const nd = hit(e.clientX, e.clientY);
+    if (nd.ref && !nd.children) return jump(byId[nd.ref]); // a reference: one click goes to the real thing
+    // a click (or a tap) pins a box: its arrows stay lit until it, or empty space, is clicked
+    const h = nd !== root && nd.t < 0.5 ? nd : null;
+    if (h && !(pinned && hot === h)) { hot = h; pinned = true; } else { hot = null; pinned = false; }
+    panel();
+    if (pinned && vw > 1000 && h.sx + h.sw > vw - 330) { const x0 = tx, x1 = tx - (h.sx + h.sw - (vw - 340)), s0 = performance.now(); anim = () => { const s = Math.min(1, (performance.now() - s0) / 260); tx = lerp(x0, x1, smooth(s)); if (s >= 1) anim = null; }; } // slide the box out from under the panel
+    req();
+  }
+};
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+cv.addEventListener('dblclick', e => { const nd = hit(e.clientX, e.clientY); if (!(nd.ref && !nd.children)) { hot = null; pinned = false; panel(); jump(nd); } });
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === '/') { e.preventDefault(); search(true); return; }
+  if (e.key === 'n' || e.key === ']') return step(1);
+  if (e.key === 'p' || e.key === '[') return step(-1);
+  if (e.key === 'Escape') { if (!find.hidden) search(false); else if (pinned || only.size) { for (const n of [...only]) pick(n, false); unpin(); } else fit(focus.parent || root); }
+  else if (e.key === '0' || e.key === 'f') fit(root);
+  else if (e.key === '+' || e.key === '=') zoomAt(vw / 2, vh / 2, 1.35);
+  else if (e.key === '-') zoomAt(vw / 2, vh / 2, 1 / 1.35);
+});
+
+// ---------- start: #at=<id> opens on that box, #hide=<state,state> starts with states off ----------
+resize();
+function fromHash(instant) {
+  const q = new URLSearchParams(location.hash.slice(1));
+  for (const s of (q.get('hide') || '').split(',')) if (s) setState(s, false);
+  for (const s of (q.get('show') || '').split(',')) if (s) setState(s, true);
+  hot = byId[q.get('hot')] || null; pinned = !!hot; panel(); // #hot=<id> opens with that box pinned
+  for (const s of (q.get('only') || '').split(',')) if (s) pick(s, true); // #only=<style,style> opens with those arrow styles picked
+  const at = byId[q.get('at')]; if (at) fit(at.children ? at : at.parent, instant);
+}
+fromHash(true); ready = true; addEventListener('hashchange', () => fromHash(false));
+window.strata = { fit, byId, zoomAt, setState, state: () => ({ zoom: k / kfit, focus: focus.id, pills: pills.map(p => p.node.id) }) };
+})();
+
+</script>
+</body>
+</html>
