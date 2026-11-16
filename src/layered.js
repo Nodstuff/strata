@@ -57,7 +57,8 @@ function component(nodes, links, o) {
   index(rows);
 
   // 4. order within rows
-  const between = k => segs.filter(s => s.a.layer === k);
+  const segsAt = Array.from({ length: L }, () => []); for (const sg of segs) segsAt[sg.a.layer].push(sg);
+  const between = k => segsAt[k];
   const crossAt = k => { const ss = between(k); let c = 0; for (let i = 0; i < ss.length; i++) for (let j = i + 1; j < ss.length; j++) if ((ss[i].a.pos - ss[j].a.pos) * (ss[i].b.pos - ss[j].b.pos) < 0) c++; return c; };
   const crossings = () => { let c = 0; for (let k = 0; k < L - 1; k++) c += crossAt(k); return c; };
   const firm = o.ord === 'NODES_AND_EDGES';
@@ -73,23 +74,27 @@ function component(nodes, links, o) {
     } else rows[k] = sorted;
     rows[k].forEach((nd, i) => { nd.pos = i; });
   };
-  let best = { c: crossings(), rows: rows.map(r => [...r]) };
-  const keep = () => { const c = crossings(); if (c < best.c) best = { c, rows: rows.map(r => [...r]) }; };
-  const rounds = o.ord === 'NONE' ? 24 : o.ord === 'PREFER_EDGES' ? 8 : 4;
-  for (let it = 0; it < rounds && best.c > 0; it++) {
-    if (it % 2 === 0) for (let k = 1; k < L; k++) sweep(k, 'up'); else for (let k = L - 2; k >= 0; k--) sweep(k, 'down');
-    keep();
-  }
-  rows = best.rows; index(rows);
-  if (!firm) for (let again = true, guard = 0; again && guard < 30; guard++) { // swap neighbours while that removes a crossing
-    again = false;
-    for (let k = 0; k < L; k++) for (let i = 0; i < rows[k].length - 1; i++) {
-      const before = (k > 0 ? crossAt(k - 1) : 0) + (k < L - 1 ? crossAt(k) : 0), a = rows[k][i], b = rows[k][i + 1];
-      rows[k][i] = b; rows[k][i + 1] = a; a.pos = i + 1; b.pos = i;
-      const after = (k > 0 ? crossAt(k - 1) : 0) + (k < L - 1 ? crossAt(k) : 0);
-      if (after < before) again = true; else { rows[k][i] = a; rows[k][i + 1] = b; a.pos = i; b.pos = i + 1; }
+  const settleOrder = () => { // sweeps, then neighbour swaps, from the order the rows are in now; leaves the best it saw
+    let best = { c: crossings(), rows: rows.map(r => [...r]) };
+    const keep = () => { const c = crossings(); if (c < best.c) best = { c, rows: rows.map(r => [...r]) }; };
+    const rounds = o.ord === 'NONE' ? 24 : o.ord === 'PREFER_EDGES' ? 8 : 4;
+    for (let it = 0; it < rounds && best.c > 0; it++) {
+      if (it % 2 === 0) for (let k = 1; k < L; k++) sweep(k, 'up'); else for (let k = L - 2; k >= 0; k--) sweep(k, 'down');
+      keep();
     }
-  }
+    rows = best.rows; index(rows);
+    if (!firm) for (let again = true, guard = 0; again && guard < 30; guard++) { // swap neighbours while that removes a crossing
+      again = false;
+      for (let k = 0; k < L; k++) for (let i = 0; i < rows[k].length - 1; i++) {
+        const before = (k > 0 ? crossAt(k - 1) : 0) + (k < L - 1 ? crossAt(k) : 0), a = rows[k][i], b = rows[k][i + 1];
+        rows[k][i] = b; rows[k][i + 1] = a; a.pos = i + 1; b.pos = i;
+        const after = (k > 0 ? crossAt(k - 1) : 0) + (k < L - 1 ? crossAt(k) : 0);
+        if (after < before) again = true; else { rows[k][i] = a; rows[k][i + 1] = b; a.pos = i; b.pos = i + 1; }
+      }
+    }
+    return crossings();
+  };
+  settleOrder(); // (starting again from shuffled rows was measured: it changes the result and does not improve it)
 
   // 5. sideways positions (centres)
   for (const r of rows) { let x = 0; for (const nd of r) { nd.x = x + nd.w / 2; x += nd.w + o.nodeGap; } const mid = (x - o.nodeGap) / 2; for (const nd of r) nd.x -= mid; }
@@ -196,33 +201,36 @@ export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = fals
     y += rowH + compGap;
   }
   const width = Math.max(...nodes.map(nd => nd.x + nd.w / 2)), height = Math.max(...nodes.map(nd => nd.y + nd.h / 2));
+  // How calm the picture is, judged before any arrow is drawn. A straight line stands in for each arrow,
+  // and for each arrow that leaves the level, a straight line from its box to the side it leaves by.
+  const judge = () => {
+    const lines = links.map(l => ({ a: l.a, b: l.b, ends: [l.a, l.b] }));
+    for (const p of pulls) for (const id of p.kids) { const k = by.get(id); if (k) lines.push({ a: k, b: [{ x: k.x, y: 0 }, { x: k.x, y: height }, { x: 0, y: k.y }, { x: width, y: k.y }][p.side], ends: [k], away: true }); }
+    let len = 0, bends = 0, crossings = 0;
+    const hit = (l, c) => { // does the straight line pass through box c (not one of its ends)?
+      for (let t = 0.1; t < 1; t += 0.1) { const px = l.a.x + (l.b.x - l.a.x) * t, py = l.a.y + (l.b.y - l.a.y) * t; if (px > c.x - c.w / 2 && px < c.x + c.w / 2 && py > c.y - c.h / 2 && py < c.y + c.h / 2) return true; }
+      return false;
+    };
+    for (const l of lines) {
+      if (l.away) len += Math.abs(l.a.x - l.b.x) + Math.abs(l.a.y - l.b.y) - (l.a.x === l.b.x ? l.a.h : l.a.w) / 2;
+      else { const dx = Math.max(0, Math.abs(l.a.x - l.b.x) - (l.a.w + l.b.w) / 2), dy = Math.max(0, Math.abs(l.a.y - l.b.y) - (l.a.h + l.b.h) / 2); len += dx + dy; if (dx > 0 && dy > 0) bends += 2; }
+      for (const c of nodes) if (!l.ends.includes(c) && hit(l, c)) { bends += 2; len += Math.min(c.w, c.h); }
+    }
+    const side = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+    for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) {
+      const p = lines[i], q = lines[j]; if (p.ends.some(e => q.ends.includes(e))) continue;
+      if (side(p.a, p.b, q.a) * side(p.a, p.b, q.b) < 0 && side(q.a, q.b, p.a) * side(q.a, q.b, p.b) < 0) crossings++;
+    }
+    const need = Math.max(width / 1.7, height);
+    return len / unit + 0.7 * bends + 5 * crossings + (8 + 1.3 * links.length) * Math.log(need / unit);
+  };
   // Left and right mean nothing to a flow that runs down (nor up and down to one that runs right), so the
-  // picture may be turned over across its flow. It is, when that brings boxes nearer the sides their arrows leave by.
-  const reach = () => { let d = 0; for (const p of pulls) for (const id of p.kids) { const k = by.get(id); if (k) d += [k.y - k.h / 2, height - k.y - k.h / 2, k.x - k.w / 2, width - k.x - k.w / 2][p.side]; } return d; };
+  // picture may be turned over across its flow. It is, when the arrows that leave make that the calmer picture.
+  let score = judge();
   if (pulls.length) {
     const flip = () => { for (const nd of nodes) { if (right) nd.y = height - nd.y; else nd.x = width - nd.x; } };
-    const as = reach(); flip(); if (reach() >= as - 1) flip();
+    flip(); const turned = judge(); if (turned < score - 0.01) score = turned; else flip();
   }
   const children = nodes.map(nd => ({ id: nd.id, x: nd.x - nd.w / 2, y: nd.y - nd.h / 2, width: nd.w, height: nd.h }));
-
-  // how calm the picture is, judged before any arrow is drawn: a straight line stands in for each arrow
-  let len = 0, bends = 0, crossings = 0;
-  const hit = (l, c) => { // does the straight line of l pass through box c (neither of its ends)?
-    for (let t = 0.1; t < 1; t += 0.1) { const px = l.a.x + (l.b.x - l.a.x) * t, py = l.a.y + (l.b.y - l.a.y) * t; if (px > c.x && px < c.x + c.width && py > c.y && py < c.y + c.height) return true; }
-    return false;
-  };
-  for (const l of links) {
-    const dx = Math.max(0, Math.abs(l.a.x - l.b.x) - (l.a.w + l.b.w) / 2), dy = Math.max(0, Math.abs(l.a.y - l.b.y) - (l.a.h + l.b.h) / 2);
-    len += dx + dy; if (dx > 0 && dy > 0) bends += 2;
-    for (const c of children) if (c.id !== l.a.id && c.id !== l.b.id && hit(l, c)) { bends += 2; len += Math.min(c.width, c.height); }
-  }
-  const side = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
-  for (let i = 0; i < links.length; i++) for (let j = i + 1; j < links.length; j++) {
-    const p = links[i], q = links[j]; if (p.a === q.a || p.a === q.b || p.b === q.a || p.b === q.b) continue;
-    if (side(p.a, p.b, q.a) * side(p.a, p.b, q.b) < 0 && side(q.a, q.b, p.a) * side(q.a, q.b, p.b) < 0) crossings++;
-  }
-  len += reach(); // a line that leaves is as long as its box is far from that side
-  const need = Math.max(width / 1.7, height);
-  const score = len / unit + 0.7 * bends + 5 * crossings + (8 + 1.3 * links.length) * Math.log(need / unit);
   return { width, height, children, edges: [], own: true, score, wrapped: parts.some(p => p.wrapped) };
 }
