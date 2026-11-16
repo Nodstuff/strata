@@ -15,6 +15,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { walk } from './model.js';
 import { quality } from './build.js';
+const DEBUG = typeof process !== 'undefined' && process.env && process.env.STRATA_DEBUG; // no process in a browser
 
 const elk = new ELK();
 const CLOSED_W = 230, CLOSED_H = 180;   // the box a closed container is drawn as
@@ -456,7 +457,7 @@ async function layoutOnce(model, hints) {
         const thin = Math.max(tries[0].width / tries[0].height, tries[0].height / tries[0].width);
         if (nd.flow && thin > 3.5) tries = [await run(dir, ord, true)]; // a strip this thin is unreadable: fold it
         else if (thin > 2.6) tries.push(await run(dir, ord, true));     // borderline, or no direction was asked for: let the score decide
-        for (const r of tries) { const score = (r.score ?? busyness(r, unit)) + handicap; if (process.env.STRATA_DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
+        for (const r of tries) { const score = (r.score ?? busyness(r, unit)) + handicap; if (DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
       }
       { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); make = (fx, fy) => run(dir, ord, wrap, fx, fy); }
       res.edges = (res.edges || []).filter(e => !e.id.startsWith('about:'));
@@ -693,6 +694,6 @@ export async function layout(model, { twice = false } = {}) {
   if (!hints.size) return first;
   let second; try { second = await layoutOnce(spare, hints); } catch (e) { return first; }
   const mark = m => { const t = quality(m).total; return t.crossings + 0.25 * t.bends + t.length; };
-  if (process.env.STRATA_DEBUG) console.error('first', mark(first).toFixed(1), 'second', mark(second).toFixed(1));
+  if (DEBUG) console.error('first', mark(first).toFixed(1), 'second', mark(second).toFixed(1));
   return mark(second) < mark(first) ? second : first;
 }
