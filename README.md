@@ -102,3 +102,8 @@ Version 0.1, view only. Local git repository, no remote. Dependencies: `elkjs` a
 `node scripts/bundle.mjs` builds `dist/strata.browser.js`: the whole renderer as one ES module. `render(yamlText)` returns `{ html, title, boxes, arrows, depth, warnings }`, where `html` is the same self-contained page `strata build` writes; a bad file throws an error whose message lists the problems. Nothing touches the network.
 
 `playground/index.html` is a small page built on it: YAML on the left, the live diagram on the right, and a button that downloads the page. Serve the repository folder with any static file server and open `/playground/`. The diagram is shown in a sandboxed frame. Layout runs on the page's main thread, so a very large diagram (300 boxes) holds the page for several seconds.
+
+## Experiment: placement without the layout engine
+
+`--own` on `check`, `build` or `shot` places boxes with `src/layered.js` in place of ELK, and draws every arrow with strata's own router. It exists to find out whether the engine, which is nearly all of the command's size, can go. It is not the default and the second layout pass (`--twice`) does nothing with it.
+

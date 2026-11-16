@@ -15,6 +15,8 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { walk } from './model.js';
 import { quality } from './build.js';
+import { layered } from './layered.js';
+let OWN = false; // EXPERIMENTAL (layout's `engine: 'own'`): boxes placed by src/layered.js, not by ELK
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.STRATA_DEBUG; // no process in a browser
 
 const elk = new ELK();
@@ -377,7 +379,7 @@ async function layoutOnce(model, hints) {
     if (stated) {
       try { make = (fx, fy) => placeStated(nd, fx, fy); res = await widen(make); } catch (e) { problems.push(e.message); res = null; make = null; }
     }
-    let hint = hints && hints.get(nd.id);
+    let hint = OWN ? null : hints && hints.get(nd.id); // the pulls of a second pass are ELK's only, so far
     while (!res) {
       const elkEdges = wanted.map(w => ({ id: w.id, sources: [w.a.id], targets: [w.b.id], labels: w.labels }));
       // a note that is about a box sits next to it: an unseen arrow ties the two together
@@ -407,7 +409,10 @@ async function layoutOnce(model, hints) {
         return r;
       };
       const unit = nd.children.reduce((s, c) => s + c.w + c.h, 0) / (2 * nd.children.length);
-      const once = (dir, ord, bare, wrap, fx = 1, fy = 1, pull = pulls(dir)) => elk.layout({
+      const own = (dir, ord, bare, wrap, fx, fy) => layered(nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })),
+        elkEdges.map(e => ({ a: e.sources[0], b: e.targets[0], label: bare.has(e.id) || !e.labels[0] ? 0 : e.labels[0].width })),
+        { dir, ord, wrap, unit, layerGap: Math.round(64 * (dir === 'DOWN' ? fy : fx)), nodeGap: Math.round(44 * (dir === 'DOWN' ? fx : fy)), compGap: Math.round(54 * Math.max(fx, fy)) });
+      const once = (dir, ord, bare, wrap, fx = 1, fy = 1, pull = pulls(dir)) => OWN ? own(dir, ord, bare, wrap, fx, fy) : elk.layout({
         id: nd.id,
         layoutOptions: {
           'elk.algorithm': 'layered',
@@ -442,7 +447,7 @@ async function layoutOnce(model, hints) {
         let r = await once(dir, ord, new Set(), wrap, fx, fy), bad = routeless(r);
         if (bad.length) { r = await once(dir, ord, new Set(bad), wrap, fx, fy); bad = routeless(r); }
         if (bad.length && wrap) { r = await once(dir, ord, new Set(), false, fx, fy); wrap = false; }
-        r.wrapped = wrap; r.how = [dir, ord, wrap];
+        r.wrapped = r.own ? r.wrapped : wrap; r.how = [dir, ord, wrap];
         if (hint) { r.score = busyness(r, unit); strip(r); } // judged with the pulls in: they stand for the lines that leave
         return r;
       };
@@ -680,7 +685,8 @@ async function layoutOnce(model, hints) {
 // decided which side its outgoing arrows leave by, so a box can end up far from the side its arrow
 // needs. The second time, every level is told those sides and arranges its boxes toward them. The
 // second picture is kept only if its arrows are cleaner by the numbers `check --stats` prints.
-export async function layout(model, { twice = false } = {}) {
+export async function layout(model, { twice = false, engine = 'elk' } = {}) {
+  OWN = engine === 'own';
   const spare = twice ? structuredClone(model) : null;
   const first = await layoutOnce(model, null);
   if (!spare) return first;
