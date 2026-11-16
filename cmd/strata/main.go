@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -28,7 +29,13 @@ import (
 // ver is the version this build reports. A release sets it with -ldflags "-X main.ver=1.2.3".
 var ver = "0.2.0-dev"
 
-func version() string { return ver }
+// version is what -ldflags set, or for a `go install ...@v1.2.3` build, the module version Go recorded.
+func version() string {
+	if bi, ok := debug.ReadBuildInfo(); ok && ver == "0.2.0-dev" && strings.HasPrefix(bi.Main.Version, "v") && !strings.Contains(bi.Main.Version, "-") {
+		return strings.TrimPrefix(bi.Main.Version, "v")
+	}
+	return ver
+}
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: strata --version\n       strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--once] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]")
