@@ -3,8 +3,8 @@
 //
 // Pass 1, deepest container first: each container gets its own inner space (iw x ih) holding
 // its children as closed boxes. If the file states where the boxes go (`place`), those
-// statements are solved; otherwise ELK places the boxes, several ways, and the least busy
-// result is kept.
+// statements are solved; otherwise the boxes are placed in layers (layered.js), several ways, and the
+// calmest result is kept. Every arrow is then drawn by the router below.
 //
 // Pass 2, top down: an arrow whose ends are in different containers is built from pieces. The
 // piece between the two outermost boxes comes from pass 1. Where it meets a container's border
@@ -12,14 +12,11 @@
 // from the port to the box the arrow is really for, going round every other box. So an arrow
 // never passes behind a box, at any zoom. A port may move along its side when that keeps the
 // picture above clean; the route inside decides where it lands, and no two arrows share one.
-import ELK from 'elkjs/lib/elk.bundled.js';
 import { walk } from './model.js';
 import { quality } from './build.js';
 import { layered } from './layered.js';
-let OWN = true; // boxes are placed by src/layered.js; layout's `engine: 'elk'` uses ELK instead, kept for comparison
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.STRATA_DEBUG; // no process in a browser
 
-const elk = new ELK();
 const CLOSED_W = 230, CLOSED_H = 180;   // the box a closed container is drawn as
 const FIT = 0.3;                        // a closed container must stay under this share of its parent, so it is still closed when the parent fills the screen
 const SIDE = 38, BOTTOM = 38;
@@ -45,25 +42,6 @@ function leafSize(nd) {
 }
 
 // ---------- how busy is a layout: shorter arrows, fewer bends, fewer crossings, screen-shaped ----------
-const pointsOf = e => { const s = e.sections && e.sections[0]; return s ? [s.startPoint, ...(s.bendPoints || []), s.endPoint] : null; };
-function busyness(res, unit) {
-  let len = 0, bends = 0, crossings = 0; const segs = [];
-  (res.edges || []).forEach((e, ei) => {
-    const p = pointsOf(e); if (!p) return;
-    bends += p.length - 2;
-    for (let i = 0; i < p.length - 1; i++) { len += Math.abs(p[i + 1].x - p[i].x) + Math.abs(p[i + 1].y - p[i].y); segs.push([p[i], p[i + 1], ei]); }
-  });
-  for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
-    const [a, b, ei] = segs[i], [c, d, ej] = segs[j]; if (ei === ej) continue;
-    const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
-    if (o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0) crossings++;
-  }
-  // how small the boxes come out once the picture is fitted to a screen: the side of the screen it needs,
-  // weighed against the rest in proportion to how many arrows there are to argue the other way
-  const side = Math.max(res.width / 1.7, res.height), n = (res.edges || []).length;
-  return len / unit + 0.7 * bends + 5 * crossings + (8 + 1.3 * n) * Math.log(side / unit);
-}
-
 // ---------- the router: a right-angle path between two sets of points, round every box ----------
 // starts and goals are lists of { at: a point on a border, out: the point CLEAR beyond it, cost }.
 // occ holds the segments already drawn in this container; running along one that belongs to a
@@ -372,7 +350,7 @@ async function layoutOnce(model, hints) {
     }
     const order = new Map(nd.children.map((c, i) => [c.id, i]));
     const stated = nd.children.some(c => c.place);
-    let res, rerouted = [], make = null;
+    let res, make = null;
     // Use the room a screen has: while the level is taller than a screen is, widen its sideways
     // gaps; while it is a long strip, widen the gaps between its rows. Boxes keep their size.
     const shape = r => (r.width + 2 * SIDE) / (r.height + 46 + BOTTOM);
@@ -401,74 +379,17 @@ async function layoutOnce(model, hints) {
     }
     let hint = hints && hints.get(nd.id);
     while (!res) {
-      const elkEdges = wanted.map(w => ({ id: w.id, sources: [w.a.id], targets: [w.b.id], labels: w.labels }));
+      const arrows = wanted.map(w => ({ a: w.a.id, b: w.b.id, label: w.labels[0] ? w.labels[0].width : 0 }));
       // a note that is about a box sits next to it: an unseen arrow ties the two together
-      for (const c of nd.children) if (c.about && order.has(c.about)) elkEdges.push({ id: 'about:' + c.id, sources: [c.about], targets: [c.id], labels: [] });
+      for (const c of nd.children) if (c.about && order.has(c.about)) arrows.push({ a: c.about, b: c.id, label: 0 });
       // Second time round (see layout): the level above has said which side each arrow out of this
-      // level leaves by. An unseen point on that side, tied to the boxes the arrow is for, pulls them
-      // toward it. Only the two sides the flow runs between can be asked for.
-      const pulls = dir => {
-        const nodes = [], edges = [];
-        for (const [group, h] of hint || []) {
-          const first = dir === 'DOWN' ? h.side === 0 : h.side === 2, last = dir === 'DOWN' ? h.side === 1 : h.side === 3, kids = h.kids.filter(k => order.has(k));
-          if ((!first && !last) || !kids.length) continue;
-          nodes.push({ id: 'away:' + group, width: 1, height: 1, layoutOptions: { 'elk.layered.layering.layerConstraint': first ? 'FIRST_SEPARATE' : 'LAST_SEPARATE' } });
-          for (const k of kids) edges.push({ id: 'away:' + group + ':' + k, sources: [first ? 'away:' + group : k], targets: [first ? k : 'away:' + group], labels: [] });
-        }
-        return { nodes, edges };
-      };
-      const strip = r => { // take the unseen points out again, and close the room they took
-        r.children = r.children.filter(c => !c.id.startsWith('away:')); r.edges = (r.edges || []).filter(e => !e.id.startsWith('away:'));
-        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; const see = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
-        const pts = e => (e.sections || []).flatMap(sc => [sc.startPoint, ...(sc.bendPoints || []), sc.endPoint]);
-        for (const c of r.children) { see(c.x, c.y); see(c.x + c.width, c.y + c.height); }
-        for (const e of r.edges) { for (const p of pts(e)) see(p.x, p.y); for (const l of e.labels || []) if (l.x != null) { see(l.x, l.y); see(l.x + l.width, l.y + l.height); } }
-        for (const c of r.children) { c.x -= x0; c.y -= y0; }
-        for (const e of r.edges) { for (const p of pts(e)) { p.x -= x0; p.y -= y0; } for (const l of e.labels || []) if (l.x != null) { l.x -= x0; l.y -= y0; } }
-        r.width = x1 - x0; r.height = y1 - y0;
-        return r;
-      };
+      // level leaves by, and the placement arranges the boxes toward those sides.
+      const pulls = [...(hint || [])].map(([, h]) => ({ side: h.side, kids: h.kids.filter(k => order.has(k)) }));
       const unit = nd.children.reduce((s, c) => s + c.w + c.h, 0) / (2 * nd.children.length);
-      const own = (dir, ord, bare, wrap, fx, fy) => layered(nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })),
-        elkEdges.map(e => ({ a: e.sources[0], b: e.targets[0], label: bare.has(e.id) || !e.labels[0] ? 0 : e.labels[0].width })),
-        { dir, ord, wrap, unit, pulls: [...(hint || [])].map(([, h]) => ({ side: h.side, kids: h.kids.filter(k => order.has(k)) })), layerGap: Math.round(64 * (dir === 'DOWN' ? fy : fx)), nodeGap: Math.round(44 * (dir === 'DOWN' ? fx : fy)), compGap: Math.round(54 * Math.max(fx, fy)) });
-      const once = (dir, ord, bare, wrap, fx = 1, fy = 1, pull = pulls(dir)) => OWN ? own(dir, ord, bare, wrap, fx, fy) : elk.layout({
-        id: nd.id,
-        layoutOptions: {
-          'elk.algorithm': 'layered',
-          'elk.direction': dir,
-          'elk.edgeRouting': 'ORTHOGONAL',
-          'elk.layered.spacing.nodeNodeBetweenLayers': String(Math.round(64 * (dir === 'DOWN' ? fy : fx))),
-          'elk.spacing.nodeNode': String(Math.round(44 * (dir === 'DOWN' ? fx : fy))),
-          'elk.spacing.edgeNode': '24',
-          'elk.spacing.edgeEdge': '16',
-          'elk.layered.spacing.edgeNodeBetweenLayers': '24',
-          'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
-          'elk.layered.considerModelOrder.strategy': ord,               // how strongly the order in the file fixes the order on screen
-          'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',          // a loop-back is the arrow that points to an earlier box in the file
-          'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-          'elk.layered.nodePlacement.favorStraightEdges': 'true',
-          'elk.layered.thoroughness': '30',
-          'elk.edgeLabels.inline': 'true',
-          'elk.layered.wrapping.strategy': wrap ? 'MULTI_EDGE' : 'OFF', // a long chain folds onto a second row instead of becoming a thin strip
-          'elk.layered.wrapping.additionalEdgeSpacing': '24',
-          'elk.separateConnectedComponents': 'true',
-          'elk.spacing.componentComponent': String(Math.round(54 * Math.max(fx, fy))),
-          'elk.aspectRatio': '1.7',
-          'elk.padding': '[top=0,left=0,bottom=0,right=0]',
-        },
-        children: [...nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })), ...pull.nodes],
-        edges: [...structuredClone(elkEdges).map(e => (bare.has(e.id) ? { ...e, labels: [] } : e)), ...pull.edges], // ELK writes into what it is given
-      });
-      // ELK can drop the route of a labelled loop-back when it wraps a chain. Retry those arrows
-      // without a reserved label, then without wrapping, so every arrow keeps a route.
-      const routeless = r => (r.edges || []).filter(e => !pointsOf(e)).map(e => e.id);
       const run = async (dir, ord, wrap, fx = 1, fy = 1) => {
-        let r = await once(dir, ord, new Set(), wrap, fx, fy), bad = routeless(r);
-        if (bad.length) { r = await once(dir, ord, new Set(bad), wrap, fx, fy); bad = routeless(r); }
-        if (bad.length && wrap) { r = await once(dir, ord, new Set(), false, fx, fy); wrap = false; }
-        r.wrapped = r.own ? r.wrapped : wrap; r.how = [dir, ord, wrap];
-        if (hint && !r.own) { r.score = busyness(r, unit); strip(r); } // judged with the pulls in: they stand for the lines that leave
+        const r = layered(nd.children.map(c => ({ id: c.id, width: c.w, height: c.h })), arrows,
+          { dir, ord, wrap, unit, pulls, layerGap: Math.round(64 * (dir === 'DOWN' ? fy : fx)), nodeGap: Math.round(44 * (dir === 'DOWN' ? fx : fy)), compGap: Math.round(54 * Math.max(fx, fy)) });
+        r.how = [dir, ord, wrap];
         return r;
       };
       // Try the directions the file allows, each with the file's order held firmly, loosely and
@@ -482,16 +403,13 @@ async function layoutOnce(model, hints) {
         const thin = Math.max(tries[0].width / tries[0].height, tries[0].height / tries[0].width);
         if (nd.flow && thin > 3.5) tries = [await run(dir, ord, true)]; // a strip this thin is unreadable: fold it
         else if (thin > 2.6) tries.push(await run(dir, ord, true));     // borderline, or no direction was asked for: let the score decide
-        for (const r of tries) { const score = (r.score ?? busyness(r, unit)) + handicap; if (DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
+        for (const r of tries) { const score = r.score + handicap; if (DEBUG) console.error(nd.id, r.how.join(' '), Math.round(r.width), 'x', Math.round(r.height), 'score', score.toFixed(1)); if (score < best) { best = score; res = r; } }
       }
       { const [dir, ord, wrap] = res.how, first = res; res = await widen((fx, fy) => (fx === 1 && fy === 1 ? first : run(dir, ord, wrap, fx, fy))); make = (fx, fy) => run(dir, ord, wrap, fx, fy); }
-      res.edges = (res.edges || []).filter(e => !e.id.startsWith('about:'));
-      // In a folded flow ELK takes loop-backs the long way round the rows. Route those again, directly.
       // A level pulled toward its exits must not come out smaller on a screen than it was without the pulls.
       const need = Math.max(res.width / 1.7, res.height);
       if (hint && need > 1.06 * hint.was) { hint = null; res = null; continue; }
       nd.need = need;
-      if (res.wrapped) rerouted = res.edges.filter(e => { const w = wanted.find(q => q.id === e.id); return w && order.get(w.a.id) > order.get(w.b.id); }).map(e => e.id);
     }
 
     // A level that is still a tall column has width to spare, and one that is still a strip has
@@ -510,17 +428,6 @@ async function layoutOnce(model, hints) {
       }
     }
 
-    // The layout engine can return a line that stops short of its box, or is not at right angles, when
-    // it folds a flow. Such a line is thrown away and drawn by this file's own router.
-    {
-      const at = new Map(res.children.map(c => [c.id, c])), on = (q, c) => c && q.x >= c.x - 2 && q.x <= c.x + c.width + 2 && q.y >= c.y - 2 && q.y <= c.y + c.height + 2;
-      for (const e of res.edges || []) {
-        const p = pointsOf(e), w = wanted.find(q => q.id === e.id); if (!p || !w || rerouted.includes(e.id)) continue;
-        const square = p.every((q, i) => !i || Math.abs(q.x - p[i - 1].x) < 0.15 || Math.abs(q.y - p[i - 1].y) < 0.15);
-        if (!square || !on(p[0], at.get(w.a.id)) || !on(p[p.length - 1], at.get(w.b.id))) rerouted.push(e.id);
-      }
-    }
-
     // the inner space: content, padding, a header band, and room so closed containers stay closed at fit
     const closable = nd.children.filter(c => c.children && !c.group);
     let W = Math.max(res.width + 2 * SIDE, ...closable.map(c => c.w / FIT));
@@ -535,18 +442,9 @@ async function layoutOnce(model, hints) {
     const pos = new Map(res.children.map(c => [c.id, c]));
     for (const c of nd.children) { const p = pos.get(c.id); c.x = p.x + ox; c.y = p.y + oy; }
     nd.routes = {}; nd.occ = [];
-    for (const e of res.edges || []) {
-      const p = pointsOf(e); if (!p || rerouted.includes(e.id)) continue;
-      const l = e.labels && e.labels[0];
-      nd.routes[e.id] = { p: p.map(q => [r1(q.x + ox), r1(q.y + oy)]) };
-      if (l && l.x != null) nd.routes[e.id].l = [r1(l.x + l.width / 2 + ox), r1(l.y + l.height / 2 + oy)];
-      occupy(nd.occ, nd.routes[e.id].p, e.id, (wanted.find(q => q.id === e.id) || {}).grp);
-    }
-    // arrows this file's own router draws: every arrow of a stated container, and the loop-backs of a folded flow
+    // every arrow is drawn here, shortest first; a hub's arrows form one tree
     const apart = w => { const a = centre(w.a), b = centre(w.b); return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]); };
     // A box with three or more arrows of one style coming in (or going out) is a hub: those arrows are drawn as one tree.
-    // Only where this file's own router draws the arrows (a level whose boxes are placed by hand, and the loop-backs
-    // of a folded flow): the layout engine has already ordered a hub's arrows on the levels it draws.
     const size = new Map();
     for (const w of wanted) if (w.grp) for (const g of w.grp) size.set(g, (size.get(g) || 0) + 1);
     const joinOf = w => {
@@ -730,8 +628,7 @@ async function layoutOnce(model, hints) {
 // decided which side its outgoing arrows leave by, so a box can end up far from the side its arrow
 // needs. The second time, every level is told those sides and arranges its boxes toward them. The
 // second picture is kept only if its arrows are cleaner by the numbers `check --stats` prints.
-export async function layout(model, { twice = true, engine = 'own' } = {}) {
-  OWN = engine !== 'elk';
+export async function layout(model, { twice = true } = {}) {
   const spare = twice ? structuredClone(model) : null;
   const first = await layoutOnce(model, null);
   if (!spare) return first;

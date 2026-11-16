@@ -1,4 +1,4 @@
-// EXPERIMENTAL: strata's own layered placement, to find out whether the layout engine (ELK) can go.
+// Where boxes go on a level the file does not place by hand: a layered placement.
 // It places boxes only; every arrow is then drawn by the router in layout.js, as on a level whose
 // boxes are placed by hand. The method is the usual one for layered pictures:
 //   1. an arrow that points to an earlier box in the file is a loop-back, and is turned round

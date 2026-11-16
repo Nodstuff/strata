@@ -16,7 +16,6 @@
     "node": ">=22"
   },
   "dependencies": {
-    "elkjs": "^0.12.1",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

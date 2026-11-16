@@ -48,7 +48,7 @@ const usage = () => { console.error('usage: strata --version\n       strata fact
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;
-try { model = await layout(load(await readFile(file, 'utf8')), { twice: !rest.includes('--once'), engine: rest.includes('--elk') ? 'elk' : 'own' }); } // --once: skip the layouts that arrange each level toward where its arrows leave; --elk: place boxes with ELK, for comparison
+try { model = await layout(load(await readFile(file, 'utf8')), { twice: !rest.includes('--once') }); } // --once: skip the layouts that arrange each level toward where its arrows leave
 catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem(s)' : 'error'}\n${e.message}`); process.exit(1); }
 for (const w of [...model.warnings, ...legibility(model), ...busy(model)]) console.error('warning: ' + w);
 const stem = basename(file).replace(/\.ya?ml$/, '');

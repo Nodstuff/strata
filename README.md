@@ -106,4 +106,4 @@ Version 0.1, view only. Local git repository, no remote. Dependencies: `elkjs` a
 
 ## Placement
 
-Boxes are placed by `src/layered.js`, strata's own layered placement: rows by flow, order within a row by fewest crossings, positions that keep a flow's spine straight, unconnected parts packed into a screen-shaped block. Every arrow is drawn by the router in `src/layout.js`. `--elk` places boxes with the ELK library instead; it is kept for comparison while the two are measured against each other, and is the only reason the command still carries ELK.
+Boxes are placed by `src/layered.js`, strata's own layered placement: rows by flow, order within a row by fewest crossings, positions that keep a flow's spine straight, unconnected parts packed into a screen-shaped block. Every arrow is drawn by the router in `src/layout.js`.

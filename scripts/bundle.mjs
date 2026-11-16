@@ -19,7 +19,7 @@ const out = process.argv[2] ? resolve(process.argv[2]) : at('skills/strata/strat
 const common = { bundle: true, format: 'esm', target: 'es2022', minify: true, legalComments: 'eof', plugins: [carried], define: { STRATA_VERSION: JSON.stringify(version) } };
 
 await build({ ...common, entryPoints: [at('bin/strata.js')], outfile: out, platform: 'node',
-  banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" } }); // elkjs is CommonJS inside
+  banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" } }); // the YAML library is CommonJS inside
 await chmod(out, 0o755);
 await build({ ...common, entryPoints: [at('src/browser.js')], outfile: at('dist/strata.browser.js'), platform: 'browser', external: ['node:*'] });
 console.log(`ok · strata ${version} · ${relative(process.cwd(), out)} · dist/strata.browser.js`);
