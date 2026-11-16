@@ -1,9 +1,10 @@
-node_modules/
-private/
+# built diagrams and pictures; the page template is source
 *.html
+!internal/page/shell.html
 *.png
+# work diagrams, never shared
+private/
+# built commands
 dist/
-!playground/*.html
-
 /strata
 /strata.exe

@@ -4,10 +4,10 @@ One YAML file becomes one self-contained HTML page: a diagram you zoom into. A b
 
 ## Use it with Claude Code
 
-strata is a Claude Code plugin: a skill that teaches Claude the file format and how to structure a diagram, and the command that draws it. You need Node 22 or newer. Chrome or Chromium is used when Claude takes pictures to check its own work, and Go only for reading a Go repository.
+strata is a Claude Code plugin: a skill that teaches Claude the file format and how to structure a diagram, and the `strata` command that draws it. The command is one small program with nothing else to install. Chrome, Chromium or Edge is used when Claude takes pictures to check its own work, and the Go toolchain only for reading a Go repository.
 
 ```
-claude plugin marketplace add <owner>/strata      # or a path to a local clone
+claude plugin marketplace add Nodstuff/strata
 claude plugin install strata@strata
 ```
 
@@ -16,46 +16,47 @@ Then ask for what you want, in Claude Code, inside the repository you want drawn
 - "Draw a strata diagram of this repository's architecture."
 - "Make a zoomable diagram of the checkout flow: gateway, orders, payments, and what each talks to."
 
-Claude writes `<name>.yaml`, checks it, looks at pictures of it, and gives you `<name>.html`. The page is one file with nothing loaded from outside: open it, send it, or put it on a share. Scroll or pinch to zoom, click a box for its links, double-click to dive in, `/` to find a box.
+Claude writes `<name>.yaml`, checks it, looks at pictures of it, and gives you `<name>.html`. The page is one file with nothing loaded from outside: open it in any browser, send it, or put it on a share. Scroll or pinch to zoom, click a box for its links, double-click to dive in, `/` to find a box.
 
-To update: `claude plugin update strata@strata`. Without plugins, copy the folder `skills/strata` to `~/.claude/skills/strata`; it holds the skill and the command.
+To update: `claude plugin update strata@strata`. Without plugins, copy the folder `skills/strata` to `~/.claude/skills/strata` and put the `strata` command on your `PATH`.
 
-## Use it by hand
+## The command
 
-There are two forms of the same command:
+Any one of these gets you `strata`:
 
-- **A standalone program**, one per platform (`strata-macos-arm64`, `strata-macos-x64`, `strata-linux-x64`, `strata-linux-arm64`, `strata-windows-x64.exe`), attached to each release with a `SHA256SUMS` file. Nothing else needs installing. Rename it to `strata`, make it executable and put it on your `PATH`. It is built without network permission: it reads and writes files, starts a browser for `shot` and Go for `facts go`, and cannot open a connection.
-- **One script**, `skills/strata/strata.mjs`, for Node 22 or newer (`node strata.mjs ...`) or Deno (`deno run --allow-read --allow-write --allow-env --allow-run --allow-sys strata.mjs ...`).
-
-From a clone, `node bin/strata.js` runs the sources (after `npm install`).
+- **A release binary** for your platform (`strata-darwin-arm64`, `strata-darwin-amd64`, `strata-linux-amd64`, `strata-linux-arm64`, `strata-windows-amd64.exe`): rename it to `strata`, make it executable, put it on your `PATH`.
+- **`go install github.com/Nodstuff/strata/cmd/strata@latest`**, if you have Go.
+- **Nothing**, inside the plugin with Go installed: the skill's launcher (`skills/strata/strata`) builds the command from the plugin's own source the first time and keeps it in your cache.
 
 ```
 strata check examples/shop.yaml                    # validate and print the tree
-strata build examples/shop.yaml -o shop.html       # the page
-strata shot  examples/shop.yaml --at ord -o ord.png   # a picture of one level (needs Chrome)
+strata build examples/shop.yaml -o shop.html       # the page: open it in a browser
+strata shot  examples/shop.yaml --at ord -o ord.png   # a picture of one level (needs a browser)
 strata facts go <dir>                              # what a Go module's code says about its architecture (needs Go)
 ```
 
-The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.md). `examples/shop.yaml` is a good one to copy from.
+The command never uses the network. The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.md). `examples/shop.yaml` is a good one to copy from.
 
 ## Working on strata
 
-`npm install`, then `npm test` before sharing a commit: it checks that the checked-in command matches the sources, that it runs on its own, and that the examples still build with arrows as clean as recorded. After changing anything under `src/` or `bin/`, run `npm run bundle` and commit `skills/strata/strata.mjs` with the change. `npm run release` builds the standalone programs into `dist/release/` (needs Deno); they are not checked in.
+`go test ./...` before sharing a commit. The tests build both examples and compare the arrow statistics with `test/expected.json` and the pages with the copies under `internal/page/testdata`, byte for byte, so any change to a picture shows up as a failing test: look at the new picture, and if it is better, record it. `scripts/release.sh` builds the command for every platform into `dist/`.
+
+One thing to know before touching the layout arithmetic: on arm64, Go may fuse `a*b + c` into a single rounding, which gives a different last digit than on amd64 and moves boxes. Products that feed a sum are wrapped in `float64(...)` to stop that; keep doing it.
 
 ## Where things are
 
 | Path | What it is |
 |---|---|
-| `src/model.js` | Reads and checks the YAML; every problem is reported at once. |
-| `src/layout.js` | Layout, one container at a time, deepest first: sizes, the arrow router, ports, stated placement. Runs at build time only. |
-| `src/layered.js` | Where boxes go on a level that is not placed by hand. |
-| `src/viewer.js` | The viewer: plain browser JavaScript, no dependencies, pasted into every page. |
-| `src/build.js` | Assembles the HTML page; also the text outline `check` prints. |
-| `bin/strata.js` | The command line. |
+| `cmd/strata` | The command line. |
+| `internal/model` | Reads and checks the YAML; every problem is reported at once. |
+| `internal/layout` | Layout, one container at a time, deepest first: sizes, box placement (`layered.go`), the arrow router (`route.go`), stated placement (`place.go`), ports and the three layouts (`layout.go`). |
+| `internal/page` | Assembles the HTML page; also the outline, warnings and statistics `check` prints. |
+| `internal/page/viewer.js` | The viewer: plain browser JavaScript, no dependencies, pasted into every page. The only part that is not Go, because it runs in the reader's browser. |
+| `internal/gofacts` | `strata facts go`: reads a Go module's syntax tree for routes, streams, buckets and outside hosts. |
+| `internal/jsx` | Number printing, rounding and ordering rules the layout depends on. strata was first written in JavaScript; these keep its results exactly. |
 | `skills/strata/SKILL.md` | What Claude reads to write diagrams: the file format and how to structure one. |
-| `skills/strata/strata.mjs` | The command as one file, built by `scripts/bundle.mjs` from `src/` and `bin/`. Checked in so that installing needs no build. |
+| `skills/strata/strata` | The launcher the skill runs: finds or builds the command. |
 | `.claude-plugin/` | What makes the repository a Claude Code plugin and its own marketplace. |
-| `playground/` | A page that draws in the browser as you type (see "In a browser"). |
 | `examples/` | Diagrams that are safe to share: `shop.yaml` (automatic layout, three levels) and `placed.yaml` (stated placement). |
 | `private/` | Diagrams that are not (git-ignored). |
 
@@ -68,7 +69,7 @@ The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.m
 - **Ports** are chosen top down, one container at a time. A piece that has a bend may slide its last leg along the side it meets; a straight piece stays where it is. Every allowed position (in line with the target box, or with the lane beside any box) is a goal for one search from the target, so the port lands where the inside route is shortest. A position is not allowed if it puts a box in the way, adds a crossing in the picture above, or sits on another arrow's port.
 - **Meeting a container**: when the router draws an arrow to a container, a point far from the box the arrow is really for costs what the detour inside would, so the arrow arrives near that box and on the side facing it.
 - **Second opinion**: a route much longer than the direct distance is routed again once every other arrow on the level is drawn, and the shorter line is kept.
-- **Stated placement**: a container whose boxes carry `place` is not arranged automatically. `placeStated` in `layout.js` turns the statements into minimum-distance constraints per axis, solves them by longest path, and reports anything ambiguous as an error. Its arrows are drawn by the same router as the cross-container pieces.
+- **Stated placement**: a container whose boxes carry `place` is not arranged automatically. `placeStated` in `internal/layout/place.go` turns the statements into minimum-distance constraints per axis, solves them by longest path, and reports anything ambiguous as an error. Its arrows are drawn by the same router as the cross-container pieces.
 - **Lanes**: the router knows which segments are already drawn in a container and charges for running along another arrow's line, so parallel arrows take neighbouring lanes 9 units apart.
 - **Layout choice**: each container is laid out up to six ways (down or right, with the file's order held firmly, loosely or not at all) and the least busy result is kept, scored on arrow length, bends, crossings and how large the boxes come out once the picture is fitted to a screen.
 - **Using the room**: a level narrower than a screen has its sideways gaps widened, and a short wide one its row gaps, until it is about screen-shaped or fills the room it has anyway. Boxes keep their size. Stated levels get the same treatment.
@@ -88,22 +89,12 @@ The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.m
 
 ## State
 
-Version 0.1, view only. Local git repository, no remote. Dependencies: `elkjs` and `yaml`, both build-time.
+Version 0.2, view only. Written in Go; one dependency, the YAML reader (`go.yaml.in/yaml/v4`).
 
 ## Facts from Go code
 
 `strata facts go <dir> [--only internal/x] [-o facts.md]` prints what a Go module's code says about its architecture, as text with file and line: each program and the outside systems it reaches, which packages hold a client for which system, the NATS streams and buckets the code names, the HTTP routes each package serves, and the packages that are only shared code. It runs offline and writes nothing in the module. It is meant as input for a person or Claude drawing the architecture, not as a diagram: see the skill.
 
-## Experimental: a diagram from Go code
-
-`strata gen go <dir> --experimental [--only internal/x] [-o out.yaml]` writes a strata file of a Go module's packages: one box per package, nested the way the directories are, and an arrow for every import between two of the module's own packages. It is what `go list` reports, run offline and read-only; nothing is guessed. A directory with more than 14 packages is grouped mechanically: packages whose names share a start go in one box (`cnq…`), and the rest are split into Foundations (import nothing else there), Tops (nothing else there imports them) and Middle. The output is an ordinary strata file: edit it, or generate it again. Two things keep it high signal. The systems the code talks to (databases, queues, cloud services, outside APIs) are found from the drivers and SDKs each package imports, and drawn as boxes with an arrow from every package that holds a client. And a package that most of the module imports (a model, a logger) keeps its box but loses its incoming arrows, which removes most of the import noise. A third thing comes from the syntax tree, read by a small Go program (`src/gofacts`, standard library only, run from a temporary directory with the network off): the HTTP routes each package serves, listed on its box by path; the NATS streams, subjects and key-value buckets the code names, drawn inside the NATS box with an arrow from each package that defines, publishes to or reads one; and outside services called by URL with no SDK (Slack, for one), from a list of known hosts. Hosts it does not know are printed, not drawn. Last, each program (`package main`) gets a dashed arrow to every system it reaches through the packages it imports, so the `cmd` level shows what each binary depends on. Limits: a subject or route built at run time is missed or shown with `*` for the unknown part; one binary that runs as several services is one box; only NATS is read for messaging. Code flows are not generated yet. The command may change or go away.
-
-## In a browser
-
-`node scripts/bundle.mjs` builds `dist/strata.browser.js`: the whole renderer as one ES module. `render(yamlText)` returns `{ html, title, boxes, arrows, depth, warnings }`, where `html` is the same self-contained page `strata build` writes; a bad file throws an error whose message lists the problems. Nothing touches the network.
-
-`playground/index.html` is a small page built on it: YAML on the left, the live diagram on the right, and a button that downloads the page. Serve the repository folder with any static file server and open `/playground/`. The diagram is shown in a sandboxed frame. Layout runs on the page's main thread, so a very large diagram (300 boxes) holds the page for several seconds.
-
 ## Placement
 
-Boxes are placed by `src/layered.js`, strata's own layered placement: rows by flow, order within a row by fewest crossings, positions that keep a flow's spine straight, unconnected parts packed into a screen-shaped block. Every arrow is drawn by the router in `src/layout.js`.
+Boxes are placed by `internal/layout/layered.go`, strata's own layered placement: rows by flow, order within a row by fewest crossings, positions that keep a flow's spine straight, unconnected parts packed into a screen-shaped block. Every arrow is drawn by the router in `internal/layout/route.go`.

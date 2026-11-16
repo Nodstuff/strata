@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/jsx"
 )
 
 // Colour is an RGB triple.

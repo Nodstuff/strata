@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -19,21 +18,17 @@ import (
 	"strings"
 	"time"
 
-	"strata"
-	"strata/internal/gofacts"
-	"strata/internal/jsx"
-	"strata/internal/layout"
-	"strata/internal/model"
-	"strata/internal/page"
+	"github.com/Nodstuff/strata/internal/gofacts"
+	"github.com/Nodstuff/strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/layout"
+	"github.com/Nodstuff/strata/internal/model"
+	"github.com/Nodstuff/strata/internal/page"
 )
 
-func version() string {
-	var p struct{ Version string }
-	if err := json.Unmarshal(strata.PackageJSON, &p); err != nil {
-		return "unknown"
-	}
-	return p.Version
-}
+// ver is the version this build reports. A release sets it with -ldflags "-X main.ver=1.2.3".
+var ver = "0.2.0-dev"
+
+func version() string { return ver }
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: strata --version\n       strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--once] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]")
@@ -206,7 +201,7 @@ func facts(args []string) int {
 	if out := opt("-o"); out != "" {
 		if err := os.WriteFile(out, []byte(report), 0o644); err != nil {
 			if os.IsNotExist(err) {
-				err = fmt.Errorf("ENOENT: no such file or directory, open '%s'", out)
+				err = fmt.Errorf("cannot write %s: no such directory", out)
 			}
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -223,7 +218,7 @@ func loadAndLayout(file string, twice bool) (*model.Model, error) {
 	text, err := os.ReadFile(file)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("ENOENT: no such file or directory, open '%s'", file)
+			return nil, fmt.Errorf("no such file")
 		}
 		return nil, err
 	}

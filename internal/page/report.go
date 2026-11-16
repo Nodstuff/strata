@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"strata/internal/jsx"
-	"strata/internal/model"
+	"github.com/Nodstuff/strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/model"
 )
 
 // Legibility says which titles will be too small to read when their container fills an ordinary

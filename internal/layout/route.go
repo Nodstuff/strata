@@ -5,8 +5,8 @@ import (
 	"slices"
 	"sort"
 
-	"strata/internal/jsx"
-	"strata/internal/model"
+	"github.com/Nodstuff/strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/model"
 )
 
 // The router: a right-angle path between two sets of points, round every box.

@@ -25,9 +25,9 @@ import (
 	"sort"
 	"strings"
 
-	"strata/internal/jsx"
-	"strata/internal/model"
-	"strata/internal/page"
+	"github.com/Nodstuff/strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/model"
+	"github.com/Nodstuff/strata/internal/page"
 )
 
 func hasNote(c *model.Node) bool { return c.Note != nil && *c.Note != "" }

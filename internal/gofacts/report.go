@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/jsx"
 )
 
 // ErrNoToolchain is returned when the `go` command cannot be run.
@@ -28,11 +28,11 @@ type listed struct {
 	rel                        string
 }
 
-// goList runs `go list` as the JavaScript did: offline (GOPROXY=off), and it accepts the output
+// goList runs `go list` offline (GOPROXY=off), so it can never fetch anything, and accepts the output
 // of a run that exited with an error as long as it printed something.
 func goList(dir string) ([]*listed, error) {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		return nil, ErrNoToolchain // node reports a missing directory as a failed spawn of `go`
+		return nil, fmt.Errorf("%s is not a directory", dir)
 	}
 	goBin, err := exec.LookPath("go")
 	if err != nil {

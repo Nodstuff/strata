@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"strata/internal/layout"
-	"strata/internal/model"
-	"strata/internal/page"
+	"github.com/Nodstuff/strata/internal/layout"
+	"github.com/Nodstuff/strata/internal/model"
+	"github.com/Nodstuff/strata/internal/page"
 )
 
 func laid(t *testing.T, name string, twice bool) *model.Model {
@@ -27,8 +27,9 @@ func laid(t *testing.T, name string, twice bool) *model.Model {
 	return m
 }
 
-// The testdata files were written by the JavaScript implementation (dump.mjs for the payload,
-// `strata build` for the page, kept as .txt because .html files are git-ignored). The port must reproduce them byte for byte.
+// The testdata files are the reference output: the payload and page of each example, as first
+// produced by the JavaScript implementation this code was translated from (the page is kept as
+// .txt because built .html files are git-ignored). A layout change shows up here as a difference.
 func TestMatchesJavaScript(t *testing.T) {
 	for _, name := range []string{"placed", "shop"} {
 		for _, twice := range []bool{true, false} {

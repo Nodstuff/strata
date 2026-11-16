@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/jsx"
 
 	"go.yaml.in/yaml/v4"
 )

@@ -6,13 +6,18 @@ import (
 	_ "embed"
 	"strings"
 
-	"strata"
-	"strata/internal/jsx"
-	"strata/internal/model"
+	"github.com/Nodstuff/strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/model"
 )
 
 //go:embed shell.html
 var shell string
+
+// viewer is the browser JavaScript pasted into every page: the zooming, the arrows, the panel.
+// It is the only part of strata that is not Go, because it runs in the reader's browser.
+//
+//go:embed viewer.js
+var viewer string
 
 func esc(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "&", "&amp;"), "<", "&lt;")
@@ -276,5 +281,5 @@ func HTML(m *model.Model) string {
 	title, rest, _ := strings.Cut(shell, "{{TITLE}}")
 	mid, rest, _ := strings.Cut(rest, "{{DATA}}")
 	between, after, _ := strings.Cut(rest, "{{VIEWER}}")
-	return title + esc(m.Title) + mid + data + between + strata.Viewer + after
+	return title + esc(m.Title) + mid + data + between + viewer + after
 }

@@ -33,8 +33,8 @@ func TestReportMatchesJavaScript(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
-	if _, err := Report("/nonexistent-dir-for-strata", ""); err != ErrNoToolchain {
-		// a directory that cannot be entered is reported as the JavaScript did: as a failed spawn of go
+	if _, err := Report("/nonexistent-dir-for-strata", ""); err == nil || err == ErrNoToolchain {
+		// a missing directory is its own problem, not a missing toolchain
 		t.Errorf("got %v", err)
 	}
 	dir, err := filepath.Abs("testdata/shop")

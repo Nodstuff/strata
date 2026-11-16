@@ -21,7 +21,7 @@ import (
 	"slices"
 	"sort"
 
-	"strata/internal/jsx"
+	"github.com/Nodstuff/strata/internal/jsx"
 )
 
 const dummyW = 14

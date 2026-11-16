@@ -1,4 +1,4 @@
-module strata
+module github.com/Nodstuff/strata
 
 go 1.27
 

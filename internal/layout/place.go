@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"strata/internal/model"
+	"github.com/Nodstuff/strata/internal/model"
 )
 
 // Stated placement: the file says where each box sits; this works out only the distances.
