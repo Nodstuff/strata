@@ -1,5 +1,8 @@
 {
   "name": "strata",
   "description": "Zoomable nested architecture and flow diagrams: Claude writes one YAML file, strata turns it into one self-contained HTML page where boxes open as you zoom in.",
-  "author": { "name": "Tom Meaney" }
+  "author": { "name": "Tom Meaney" },
+  "license": "MIT",
+  "homepage": "https://github.com/Nodstuff/strata",
+  "repository": "https://github.com/Nodstuff/strata"
 }

@@ -1,4 +1,4 @@
-# strata (working name)
+# strata
 
 One YAML file becomes one self-contained HTML page: a diagram you zoom into. A box that has boxes inside it is a single labelled box when small and opens to show its contents as you zoom in. Arrows are declared once and merge on their own while their ends are closed.
 
@@ -90,6 +90,10 @@ One thing to know before touching the layout arithmetic: on arm64, Go may fuse `
 ## State
 
 Version 0.2, view only. Written in Go; one dependency, the YAML reader (`go.yaml.in/yaml/v4`).
+
+## Licence
+
+MIT: see [`LICENSE`](LICENSE). The command includes the YAML reader `go.yaml.in/yaml/v4`, which is under the Apache License 2.0; its licence and notice are in [`third_party/`](third_party/go.yaml.in-yaml-v4).
 
 ## Facts from Go code
 
