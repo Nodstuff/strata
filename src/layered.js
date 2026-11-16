@@ -49,7 +49,10 @@ function component(nodes, links, o) {
     segs.push({ a: prev, b: l.b, label: l.label });
   }
   for (const nd of all) { nd.up = []; nd.down = []; }
-  for (const s of segs) { const wt = s.a.dummy && s.b.dummy ? 8 : s.a.dummy || s.b.dummy ? 2 : 1; s.a.down.push({ n: s.b, wt }); s.b.up.push({ n: s.a, wt }); }
+  // How hard an arrow holds its two ends in line: an arrow that skips rows most, then an arrow in the middle
+  // of a flow (something leads to it and something follows), then one at a flow's start or end. So the spine of a flow runs straight and the boxes that end a branch hang beside it.
+  const SPINE = 6; // measured at 1, 3, 6 and with simpler rules: 6 gave the fewest crossings and the most compact levels
+  for (const s of segs) { const wt = s.a.dummy && s.b.dummy ? 8 : s.a.dummy || s.b.dummy ? 2 : s.b.outs.length && s.a.ins.length ? SPINE : s.b.outs.length || s.a.ins.length ? (SPINE + 1) / 2 : 1; s.a.down.push({ n: s.b, wt }); s.b.up.push({ n: s.a, wt }); }
   let rows = Array.from({ length: L }, () => []);
   for (const nd of all) rows[nd.layer].push(nd);
   for (const r of rows) r.sort((p, q) => p.key - q.key);
@@ -104,7 +107,8 @@ function component(nodes, links, o) {
     const t = [], w = [];
     r.forEach((nd, i) => {
       let s = 0, ws = 0; for (const side of sides) for (const e of nd[side]) { s += e.n.x * e.wt; ws += e.wt; }
-      t.push((ws ? s / ws : nd.x) - off[i]); w.push(ws || 0.05);
+      const C = o.centre ?? 0; // a light pull toward the middle keeps a chain from wandering off in a staircase
+      t.push((ws ? s / (ws + C) : nd.x) - off[i]); w.push(ws ? ws + C : 0.05);
     });
     isotonic(t, w).forEach((v, i) => { r[i].x = v + off[i]; });
   };
@@ -143,7 +147,7 @@ function component(nodes, links, o) {
 // Returns what the layout engine would: { width, height, children: [{ id, x, y, width, height }], edges: [] },
 // with `score` (lower is a calmer picture) and `wrapped`.
 // pulls: [{ side: 0 top | 1 bottom | 2 left | 3 right, kids: [id] }]: arrows that leave this level by that side, and the boxes they are for.
-export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = false, layerGap = 64, nodeGap = 44, compGap = 54, aspect = 1.7, unit = 100, pulls = [] } = {}) {
+export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = false, layerGap = 64, nodeGap = 44, compGap = 54, aspect = 1.7, unit = 100, pulls = [], centre = 0 } = {}) {
   const right = dir === 'RIGHT';
   const nodes = boxes.map((b, i) => ({ id: b.id, key: i, w: right ? b.height : b.width, h: right ? b.width : b.height, real: b }));
   const by = new Map(nodes.map(nd => [nd.id, nd])), seen = new Set(), links = [];
@@ -158,7 +162,7 @@ export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = fals
   for (const l of links) root.set(find(l.a), find(l.b));
   const groups = new Map();
   for (const nd of nodes) { const r = find(nd); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(nd); }
-  const o = { ord, layerGap, nodeGap, labelRoom: w => (right ? Math.min(w, 130) : 16) };
+  const o = { ord, layerGap, nodeGap, centre, labelRoom: w => (right ? Math.min(w, 130) : 16) };
   // A pull along the flow is an unseen point before the first row or after the last, tied to its boxes.
   // (Sides are turned for a flow to the right.)
   const extra = new Map(); let vk = 0;
@@ -189,17 +193,22 @@ export function layered(boxes, arrows, { dir = 'DOWN', ord = 'NONE', wrap = fals
   // row, leftward first. With no pulls every part leans 0 and the file's order stands.
   const lean = new Map(parts.map(p => [p, [0, 0]]));
   for (const pl of pulls) for (const id of pl.kids) { const k = by.get(id), p = k && parts.find(q => q.nodes.includes(k)); if (p) lean.get(p)[pl.side < 2 ? 1 : 0] += pl.side % 2 ? 1 : -1; }
-  const sgn = v => Math.sign(v), queue = [...parts].sort((p, q) => sgn(lean.get(p)[1]) - sgn(lean.get(q)[1])), rowsOf = [[]];
-  let x = 0, y = 0, rowH = 0;
-  for (const p of queue) {
-    if (x > 0 && x + p.w > limit) { x = 0; rowsOf.push([]); }
-    rowsOf[rowsOf.length - 1].push(p); x += p.w + compGap;
-  }
-  for (const row of rowsOf) {
-    row.sort((p, q) => sgn(lean.get(p)[0]) - sgn(lean.get(q)[0])); x = 0; rowH = 0;
-    for (const p of row) { for (const nd of p.nodes) { nd.x += x; nd.y += y; } x += p.w + compGap; rowH = Math.max(rowH, p.h); }
-    y += rowH + compGap;
-  }
+  const sgn = v => Math.sign(v), queue = [...parts].sort((p, q) => sgn(lean.get(p)[1]) - sgn(lean.get(q)[1]));
+  // Several row widths are tried and the block that needs the least of a screen is kept.
+  const packAt = lim => {
+    const rowsOf = [[]]; let x = 0;
+    for (const p of queue) { if (x > 0 && x + p.w > lim) { x = 0; rowsOf.push([]); } rowsOf[rowsOf.length - 1].push(p); x += p.w + compGap; }
+    let y = 0, W = 0; const at = new Map();
+    for (const row of rowsOf) {
+      row.sort((p, q) => sgn(lean.get(p)[0]) - sgn(lean.get(q)[0])); x = 0; let rowH = 0;
+      for (const p of row) { at.set(p, [x, y]); x += p.w + compGap; rowH = Math.max(rowH, p.h); }
+      W = Math.max(W, x - compGap); y += rowH + compGap;
+    }
+    return { at, need: Math.max(W / aspect, y - compGap) };
+  };
+  const widths = new Set([limit]); { let x = 0; for (const p of queue) { x += p.w; widths.add(x + 1); x += compGap; } }
+  let pack = null; for (const lim of widths) { if (lim < Math.max(...parts.map(p => p.w))) continue; const t = packAt(lim); if (!pack || t.need < pack.need - 0.5) pack = t; }
+  for (const p of parts) { const [px, py] = pack.at.get(p); for (const nd of p.nodes) { nd.x += px; nd.y += py; } }
   const width = Math.max(...nodes.map(nd => nd.x + nd.w / 2)), height = Math.max(...nodes.map(nd => nd.y + nd.h / 2));
   // How calm the picture is, judged before any arrow is drawn. A straight line stands in for each arrow,
   // and for each arrow that leaves the level, a straight line from its box to the side it leaves by.
