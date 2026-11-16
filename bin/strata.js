@@ -69,8 +69,9 @@ if (cmd === 'check' && rest.includes('--stats')) { // how clean the arrows are, 
   await writeFile(out, await html(model));
   console.log(`ok · ${resolve(out)}`);
 } else {
-  const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(p => p && existsSync(p));
-  if (!chrome) { console.error('shot needs Chrome or Chromium; set CHROME to its path'); process.exit(1); }
+  const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].find(p => p && existsSync(p));
+  if (!chrome) { console.error('shot needs Chrome, Chromium or Edge; none was found. Set CHROME to the path of one'); process.exit(1); }
   const at = opt('--at'), hide = opt('--hide'), show = opt('--show'), hot = opt('--hot'), only = opt('--only'), size = (opt('--size') || '1600x1000').replace('x', ',');
   if (at && !JSON.stringify(model.root).includes(`"id":"${at}"`)) { console.error(`--at ${at}: no node has that id`); process.exit(1); }
   const out = resolve(opt('-o') || `${stem}${at ? '-' + at : ''}.png`);

@@ -22,7 +22,12 @@ To update: `claude plugin update strata@strata`. Without plugins, copy the folde
 
 ## Use it by hand
 
-The command is one file, `skills/strata/strata.mjs`. Put it anywhere and run it with Node; from a clone, `node bin/strata.js` runs the sources (after `npm install`).
+There are two forms of the same command:
+
+- **A standalone program**, one per platform (`strata-macos-arm64`, `strata-macos-x64`, `strata-linux-x64`, `strata-linux-arm64`, `strata-windows-x64.exe`), attached to each release with a `SHA256SUMS` file. Nothing else needs installing. Rename it to `strata`, make it executable and put it on your `PATH`. It is built without network permission: it reads and writes files, starts a browser for `shot` and Go for `facts go`, and cannot open a connection.
+- **One script**, `skills/strata/strata.mjs`, for Node 22 or newer (`node strata.mjs ...`) or Deno (`deno run --allow-read --allow-write --allow-env --allow-run --allow-sys strata.mjs ...`).
+
+From a clone, `node bin/strata.js` runs the sources (after `npm install`).
 
 ```
 strata check examples/shop.yaml                    # validate and print the tree
@@ -35,7 +40,7 @@ The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.m
 
 ## Working on strata
 
-`npm install`, then `npm test` before sharing a commit: it checks that the checked-in command matches the sources, that it runs on its own, and that the examples still build with arrows as clean as recorded. After changing anything under `src/` or `bin/`, run `npm run bundle` and commit `skills/strata/strata.mjs` with the change.
+`npm install`, then `npm test` before sharing a commit: it checks that the checked-in command matches the sources, that it runs on its own, and that the examples still build with arrows as clean as recorded. After changing anything under `src/` or `bin/`, run `npm run bundle` and commit `skills/strata/strata.mjs` with the change. `npm run release` builds the standalone programs into `dist/release/` (needs Deno); they are not checked in.
 
 ## Where things are
 
