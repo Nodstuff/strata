@@ -3,3 +3,4 @@ private/
 *.html
 *.png
 dist/
+!playground/*.html
