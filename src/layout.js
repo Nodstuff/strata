@@ -145,11 +145,20 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   const goalAt = new Map();
   goals.forEach((g, gi) => { const i = xi.get(r1(g.out[0])), j = yi.get(r1(g.out[1])); if (i != null && j != null && ok(g.out[0], g.out[1])) { const k = i * NY + j; if (!goalAt.has(k)) goalAt.set(k, []); goalAt.get(k).push(gi); } });
   if (!goalAt.size) return null;
-  const DONE = xs.length * NY * 4; // keys from here up stand for "arrived at goal n"
+  const NX = xs.length, DONE = NX * NY * 4; // keys from here up stand for "arrived at goal n"
+  // What the search asks again and again is worked out once per grid point and per grid step:
+  // whether it is clear of every box, and what the step costs (the same in both directions).
+  const free = new Int8Array(NX * NY), openH = new Int8Array(NX * NY), openV = new Int8Array(NX * NY), costH = new Float64Array(NX * NY).fill(NaN), costV = new Float64Array(NX * NY).fill(NaN);
+  const clear = (i, j) => { const c = i * NY + j; return (free[c] || (free[c] = ok(xs[i], ys[j]) ? 1 : 2)) === 1; };
+  const open = (i, j, ni, nj) => { // the step between two neighbouring grid points: its middle and its far end are clear
+    const c = Math.min(i, ni) * NY + Math.min(j, nj), a = i === ni ? openV : openH;
+    return (a[c] || (a[c] = ok((xs[i] + xs[ni]) / 2, (ys[j] + ys[nj]) / 2) ? 1 : 2)) === 1 && clear(ni, nj);
+  };
+  const step = (i, j, ni, nj) => { const c = Math.min(i, ni) * NY + Math.min(j, nj), a = i === ni ? costV : costH; return a[c] === a[c] ? a[c] : (a[c] = stepCost(xs[i], ys[j], xs[ni], ys[nj])); };
   // Dijkstra over (column, row, heading) with a binary heap; a bend costs as much as a long detour
-  const BEND = 40, dist = new Map(), prev = new Map(), heap = [];
+  const BEND = 40, dist = new Float64Array(DONE + goals.length).fill(Infinity), prev = new Int32Array(DONE + goals.length), heap = [];
   const push = (c, k, from) => {
-    if (dist.has(k) && dist.get(k) <= c) return; dist.set(k, c); prev.set(k, from);
+    if (dist[k] <= c) return; dist[k] = c; prev[k] = from;
     let n = heap.push([c, k]) - 1;
     while (n > 0) { const p = (n - 1) >> 1; if (heap[p][0] <= heap[n][0]) break; [heap[p], heap[n]] = [heap[n], heap[p]]; n = p; }
   };
@@ -166,15 +175,15 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
   let end = null, goal = null;
   while (heap.length) {
-    const [c, k] = pop(); if (c > dist.get(k)) continue;
-    if (k >= DONE) { goal = goals[k - DONE]; end = prev.get(k); break; }
+    const [c, k] = pop(); if (c > dist[k]) continue;
+    if (k >= DONE) { goal = goals[k - DONE]; end = prev[k]; break; }
     const cell = k >> 2, d = k & 3, i = Math.floor(cell / NY), j = cell % NY;
     for (const gi of goalAt.get(cell) || []) push(c + stub(goals[gi]) + (goals[gi].joined || heading(goals[gi].out, goals[gi].at) === d ? 0 : BEND), DONE + gi, k);
     for (let nd = 0; nd < 4; nd++) {
       if ((nd + 2) % 4 === d) continue;
-      const ni = i + DX[nd], nj = j + DY[nd]; if (ni < 0 || nj < 0 || ni >= xs.length || nj >= NY) continue;
-      if (!ok((xs[i] + xs[ni]) / 2, (ys[j] + ys[nj]) / 2) || !ok(xs[ni], ys[nj])) continue;
-      push(c + stepCost(xs[i], ys[j], xs[ni], ys[nj]) + (nd === d ? 0 : BEND), (ni * NY + nj) * 4 + nd, k);
+      const ni = i + DX[nd], nj = j + DY[nd]; if (ni < 0 || nj < 0 || ni >= NX || nj >= NY) continue;
+      if (!open(i, j, ni, nj)) continue;
+      push(c + step(i, j, ni, nj) + (nd === d ? 0 : BEND), (ni * NY + nj) * 4 + nd, k);
     }
   }
   if (end == null) return null;
@@ -182,7 +191,7 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   const pts = [goal.at, goal.out];
   for (let k = end; ;) {
     const cell = k >> 2; pts.push([xs[Math.floor(cell / NY)], ys[cell % NY]]);
-    const p = prev.get(k);
+    const p = prev[k];
     if (p < 0) { from = starts[-1 - p]; pts.push(from.at); break; }
     k = p;
   }
