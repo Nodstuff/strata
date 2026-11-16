@@ -16,7 +16,7 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import { walk } from './model.js';
 import { quality } from './build.js';
 import { layered } from './layered.js';
-let OWN = false; // EXPERIMENTAL (layout's `engine: 'own'`): boxes placed by src/layered.js, not by ELK
+let OWN = true; // boxes are placed by src/layered.js; layout's `engine: 'elk'` uses ELK instead, kept for comparison
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.STRATA_DEBUG; // no process in a browser
 
 const elk = new ELK();
@@ -126,16 +126,22 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
     starts.push({ at: P, out: P, cost: 0.3 * along([...m.slice(0, i + 1), P]) - 14, head: m.slice(0, i + 1), joined: true });
   }
   const lap = (a0, a1, b0, b1) => Math.max(0, Math.min(Math.max(a0, a1), Math.max(b0, b1)) - Math.max(Math.min(a0, a1), Math.min(b0, b1)));
+  // The lines that can matter to a step along one row (or one column) are picked out once per row (column).
+  const rowOf = new Map(), colOf = new Map();
+  const alongRow = y => { let r = rowOf.get(y); if (!r) rowOf.set(y, r = { near: hor.filter(s => Math.abs(s.a[1] - y) < LANE - 2), over: ver.filter(s => y > Math.min(s.a[1], s.b[1]) && y < Math.max(s.a[1], s.b[1])), kin: mhor.filter(s => Math.abs(s.a[1] - y) < 0.06) }); return r; };
+  const alongCol = x => { let r = colOf.get(x); if (!r) colOf.set(x, r = { near: ver.filter(s => Math.abs(s.a[0] - x) < LANE - 2), over: hor.filter(s => x > Math.min(s.a[0], s.b[0]) && x < Math.max(s.a[0], s.b[0])), kin: mver.filter(s => Math.abs(s.a[0] - x) < 0.06) }); return r; };
   const stepCost = (x0, y0, x1, y1) => { // length, plus riding on or crossing another arrow's line
     let c = Math.abs(x1 - x0) + Math.abs(y1 - y0);
     if (y0 === y1) {
-      for (const s of hor) if (Math.abs(s.a[1] - y0) < LANE - 2) c += 4 * lap(x0, x1, s.a[0], s.b[0]);
-      for (const s of ver) if (s.a[0] > Math.min(x0, x1) && s.a[0] < Math.max(x0, x1) && y0 > Math.min(s.a[1], s.b[1]) && y0 < Math.max(s.a[1], s.b[1])) c += CROSS;
-      let on = 0; for (const s of mhor) if (Math.abs(s.a[1] - y0) < 0.06) on = Math.max(on, lap(x0, x1, s.a[0], s.b[0])); c -= 0.62 * on;
+      const r = alongRow(y0), lo = Math.min(x0, x1), hi = Math.max(x0, x1);
+      for (const s of r.near) c += 4 * lap(x0, x1, s.a[0], s.b[0]);
+      for (const s of r.over) if (s.a[0] > lo && s.a[0] < hi) c += CROSS;
+      let on = 0; for (const s of r.kin) on = Math.max(on, lap(x0, x1, s.a[0], s.b[0])); c -= 0.62 * on;
     } else {
-      for (const s of ver) if (Math.abs(s.a[0] - x0) < LANE - 2) c += 4 * lap(y0, y1, s.a[1], s.b[1]);
-      for (const s of hor) if (s.a[1] > Math.min(y0, y1) && s.a[1] < Math.max(y0, y1) && x0 > Math.min(s.a[0], s.b[0]) && x0 < Math.max(s.a[0], s.b[0])) c += CROSS;
-      let on = 0; for (const s of mver) if (Math.abs(s.a[0] - x0) < 0.06) on = Math.max(on, lap(y0, y1, s.a[1], s.b[1])); c -= 0.62 * on;
+      const r = alongCol(x0), lo = Math.min(y0, y1), hi = Math.max(y0, y1);
+      for (const s of r.near) c += 4 * lap(y0, y1, s.a[1], s.b[1]);
+      for (const s of r.over) if (s.a[1] > lo && s.a[1] < hi) c += CROSS;
+      let on = 0; for (const s of r.kin) on = Math.max(on, lap(y0, y1, s.a[1], s.b[1])); c -= 0.62 * on;
     }
     return c;
   };
@@ -156,16 +162,18 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   };
   const step = (i, j, ni, nj) => { const c = Math.min(i, ni) * NY + Math.min(j, nj), a = i === ni ? costV : costH; return a[c] === a[c] ? a[c] : (a[c] = stepCost(xs[i], ys[j], xs[ni], ys[nj])); };
   // Dijkstra over (column, row, heading) with a binary heap; a bend costs as much as a long detour
-  const BEND = 40, dist = new Float64Array(DONE + goals.length).fill(Infinity), prev = new Int32Array(DONE + goals.length), heap = [];
+  const BEND = 40, dist = new Float64Array(DONE + goals.length).fill(Infinity), prev = new Int32Array(DONE + goals.length);
+  let hc = new Float64Array(1024), hk = new Int32Array(1024), hn = 0, topC = 0, topK = 0; // the heap: costs and keys side by side
   const push = (c, k, from) => {
     if (dist[k] <= c) return; dist[k] = c; prev[k] = from;
-    let n = heap.push([c, k]) - 1;
-    while (n > 0) { const p = (n - 1) >> 1; if (heap[p][0] <= heap[n][0]) break; [heap[p], heap[n]] = [heap[n], heap[p]]; n = p; }
+    if (hn === hc.length) { const c2 = new Float64Array(hn * 2), k2 = new Int32Array(hn * 2); c2.set(hc); k2.set(hk); hc = c2; hk = k2; }
+    let n = hn++;
+    while (n > 0) { const p = (n - 1) >> 1; if (hc[p] <= c) break; hc[n] = hc[p]; hk[n] = hk[p]; n = p; }
+    hc[n] = c; hk[n] = k;
   };
-  const pop = () => {
-    const top = heap[0], last = heap.pop();
-    if (heap.length) { heap[0] = last; let n = 0; for (;;) { let m = n; const l = 2 * n + 1, r = l + 1; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === n) break; [heap[m], heap[n]] = [heap[n], heap[m]]; n = m; } }
-    return top;
+  const pop = () => { // leaves the least entry in topC, topK
+    topC = hc[0]; topK = hk[0]; hn--;
+    if (hn) { const c = hc[hn], k = hk[hn]; let n = 0; for (;;) { let m = 2 * n + 1; if (m >= hn) break; if (m + 1 < hn && hc[m + 1] < hc[m]) m++; if (hc[m] >= c) break; hc[n] = hc[m]; hk[n] = hk[m]; n = m; } hc[n] = c; hk[n] = k; }
   };
   starts.forEach((s, si) => {
     const i = xi.get(r1(s.out[0])), j = yi.get(r1(s.out[1])); if (i == null || j == null || !ok(s.out[0], s.out[1])) return;
@@ -174,8 +182,8 @@ function route(starts, goals, walls, W, H, occ, tag, grp, join) {
   });
   const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
   let end = null, goal = null;
-  while (heap.length) {
-    const [c, k] = pop(); if (c > dist[k]) continue;
+  while (hn) {
+    pop(); const c = topC, k = topK; if (c > dist[k]) continue;
     if (k >= DONE) { goal = goals[k - DONE]; end = prev[k]; break; }
     const cell = k >> 2, d = k & 3, i = Math.floor(cell / NY), j = cell % NY;
     for (const gi of goalAt.get(cell) || []) push(c + stub(goals[gi]) + (goals[gi].joined || heading(goals[gi].out, goals[gi].at) === d ? 0 : BEND), DONE + gi, k);
@@ -694,8 +702,8 @@ async function layoutOnce(model, hints) {
 // decided which side its outgoing arrows leave by, so a box can end up far from the side its arrow
 // needs. The second time, every level is told those sides and arranges its boxes toward them. The
 // second picture is kept only if its arrows are cleaner by the numbers `check --stats` prints.
-export async function layout(model, { twice = false, engine = 'elk' } = {}) {
-  OWN = engine === 'own';
+export async function layout(model, { twice = true, engine = 'own' } = {}) {
+  OWN = engine !== 'elk';
   const spare = twice ? structuredClone(model) : null;
   const first = await layoutOnce(model, null);
   if (!spare) return first;

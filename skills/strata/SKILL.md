@@ -18,7 +18,7 @@ First run `strata --version`. If it prints a version, the standalone program is 
 
 `shot` takes `--size 1600x1000` (the default) and always renders the dark theme. A picture takes 5 to 20 seconds, so take a few per command, not twenty. `--only <style>` lights the arrows of one style and dims the rest. `--at <id>` opens the picture fitted to that container; `--show <tag,tag>` and `--hide <tag>` set tags; `--hot <id>` lights one box's arrows and dims the rest, which is how a reader untangles a busy level by pointing at a box. The same works in a link: `<name>.html#at=<id>&show=<tag>`.
 
-Two more commands help judge a result. `strata check <name>.yaml --stats` prints how often arrows cross, per level: use it to compare two ways of grouping a busy level. `--twice` on `check`, `build` or `shot` lays the picture out a second time with each level arranged toward where its arrows leave; it takes twice as long and helps a little on crowded levels.
+Two more commands help judge a result. `strata check <name>.yaml --stats` prints how often arrows cross, per level: use it to compare two ways of grouping a busy level.
 
 ## Drawing a system from its repository
 
@@ -197,13 +197,13 @@ nodes:
 
 - Does the top level read in five seconds? If not, there are too many boxes or too many arrows at that level.
 - Does each container, opened with `--at`, show its boxes at a readable size? A long chain wraps onto extra rows; if it still reads badly, split it into two nested boxes. A container that comes out as a thin column or strip, using a third of the screen, is the case for setting `flow` on it.
-- Is a level still tangled after regrouping? `check --stats` names the levels with the most crossings; try `--twice` on those, and keep it only if the picture is visibly better.
+- Is a level still tangled after regrouping? `check --stats` names the levels with the most crossings; regroup those, or state their arrangement with `place`.
 - Every arrow is routed with right angles and goes round boxes. An arrow to something outside the container leaves through the container's frame and ends in a label at the screen edge naming where it goes; that is expected. A label ending in `+1` stands for two boxes at the end of the same line.
 
 ## Limits today
 
 - View only. People who open the HTML can zoom, pan, dive, toggle states and follow references; they cannot edit.
-- A route never passes behind a box and each arrow meets a container at its own point. By default strata does not rearrange a container to suit what is outside it, so an arrow can still take a long way to the side its target sits on; `--twice` rearranges, within limits.
+- A route never passes behind a box and each arrow meets a container at its own point. strata arranges each container toward the sides its arrows leave by, within limits, so an arrow can still take a long way to the side its target sits on.
 - `strata facts` reads Go only.
 - A top level that is a chain of groups (people, clients, the system, what it depends on) comes out on its own as a wide strip or a tall column using half the screen. State its arrangement instead: see "Stating the arrangement".
 - Arrow labels only show once you are zoomed in far enough for them to fit the room the layout kept for them, so a top level can show no labels.

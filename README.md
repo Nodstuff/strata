@@ -47,7 +47,8 @@ The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.m
 | Path | What it is |
 |---|---|
 | `src/model.js` | Reads and checks the YAML; every problem is reported at once. |
-| `src/layout.js` | Automatic layout, one container at a time, deepest first (ELK). Runs at build time only. |
+| `src/layout.js` | Layout, one container at a time, deepest first: sizes, the arrow router, ports, stated placement. Runs at build time only. |
+| `src/layered.js` | Where boxes go on a level that is not placed by hand. |
 | `src/viewer.js` | The viewer: plain browser JavaScript, no dependencies, pasted into every page. |
 | `src/build.js` | Assembles the HTML page; also the text outline `check` prints. |
 | `bin/strata.js` | The command line. |
@@ -60,14 +61,14 @@ The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.m
 
 ## How it works
 
-- **Layout** runs bottom-up. Each container gets its own inner space; ELK places its children as closed boxes and routes the arrows between them. A closed container is then drawn in its parent as a box of the same shape as its inner space, so opening it is a pure zoom.
+- **Layout** runs bottom-up. Each container gets its own inner space; its children are placed as closed boxes and the arrows are routed between them. A closed container is then drawn in its parent as a box of the same shape as its inner space, so opening it is a pure zoom.
 - **Opening** depends on one number: the share of the viewport a container covers (closed below 34%, open above 46%). Layout keeps every closed container under 30% of its parent, so it is still closed when the parent fills the screen.
 - **Arrows** resolve, every frame, to the deepest visible box at each end. Arrows that end up between the same two boxes merge and take the highest-ranked style among them.
-- **Routes** are built from pieces made at build time. Between two boxes in one container the piece is ELK's. Where that piece meets a container's border is the container's port for the arrow, and inside the container a right-angle route (a small Dijkstra search in `layout.js`) runs from the port to the box the arrow is really for, round every other box. The viewer strings the pieces for whatever is open into one line.
+- **Routes** are built from pieces made at build time. Between two boxes in one container the piece is the router's path round the other boxes. Where that piece meets a container's border is the container's port for the arrow, and inside the container a right-angle route (a small Dijkstra search in `layout.js`) runs from the port to the box the arrow is really for, round every other box. The viewer strings the pieces for whatever is open into one line.
 - **Ports** are chosen top down, one container at a time. A piece that has a bend may slide its last leg along the side it meets; a straight piece stays where it is. Every allowed position (in line with the target box, or with the lane beside any box) is a goal for one search from the target, so the port lands where the inside route is shortest. A position is not allowed if it puts a box in the way, adds a crossing in the picture above, or sits on another arrow's port.
 - **Meeting a container**: when the router draws an arrow to a container, a point far from the box the arrow is really for costs what the detour inside would, so the arrow arrives near that box and on the side facing it.
-- **Second opinion**: an ELK route much longer than the direct distance is routed again by the same router, and the shorter line is kept.
-- **Stated placement**: a container whose boxes carry `place` is not given to ELK. `placeStated` in `layout.js` turns the statements into minimum-distance constraints per axis, solves them by longest path, and reports anything ambiguous as an error. Its arrows are drawn by the same router as the cross-container pieces.
+- **Second opinion**: a route much longer than the direct distance is routed again once every other arrow on the level is drawn, and the shorter line is kept.
+- **Stated placement**: a container whose boxes carry `place` is not arranged automatically. `placeStated` in `layout.js` turns the statements into minimum-distance constraints per axis, solves them by longest path, and reports anything ambiguous as an error. Its arrows are drawn by the same router as the cross-container pieces.
 - **Lanes**: the router knows which segments are already drawn in a container and charges for running along another arrow's line, so parallel arrows take neighbouring lanes 9 units apart.
 - **Layout choice**: each container is laid out up to six ways (down or right, with the file's order held firmly, loosely or not at all) and the least busy result is kept, scored on arrow length, bends, crossings and how large the boxes come out once the picture is fitted to a screen.
 - **Using the room**: a level narrower than a screen has its sideways gaps widened, and a short wide one its row gaps, until it is about screen-shaped or fills the room it has anyway. Boxes keep their size. Stated levels get the same treatment.
@@ -79,7 +80,7 @@ The file format is described in [`skills/strata/SKILL.md`](skills/strata/SKILL.m
 - **Links**: the page address follows the view (level, tags, pinned box), so a copied link opens on the same picture. `‹` and `›` beside the tags step through them, as `p` and `n` do.
 - **Trunks**: arrows of the same style that go into the same box, or come out of the same box, may share a line and a meeting point. Each is labelled on the stretch that is its own. Inside a container, the boxes that share one arrow out of it are drawn as one tree to the point where the arrow leaves.
 - **Exit points**: an arrow meets a container on the side nearest the boxes it is for, when that does not add crossings on the level above.
-- **Laid out twice, on request** (`--twice` on `check`, `build` or `shot`): the first layout finds which side of each container every outgoing arrow leaves by; the second arranges each level with its boxes pulled toward those sides. A level keeps the pulled arrangement only if it stays as large on screen, and the second picture is kept only if its arrows measure cleaner. Levels placed by hand (`place`) are never moved. A build takes about twice as long, and on the diagrams tried so far the gain is measurable but hard to see, so it is off by default.
+- **Arranged toward the exits**: the first layout finds which side of each container every outgoing arrow leaves by. A second arranges each level toward those sides: a level is turned over across its flow when that brings its boxes nearer, its unconnected parts are ordered toward the sides they leave by, and boxes whose arrows leave along the flow move to the first or last row. Not every level is better for it, so a third layout keeps the new arrangement only on the levels whose arrows came out calmer, and the best of the three pictures by measurement is the one kept. Levels placed by hand (`place`) are never moved. `--once` skips the second and third.
 - **Measuring the arrows**: `strata check file.yaml --stats` prints, per level and in total, how often arrows cross, how many bends there are and how much line is drawn. Use it to judge a change to a diagram or to the router.
 - **Room for titles**: on a level that is a tall column, plain boxes grow wider so their titles are larger once the level fits a screen; on a strip they grow taller.
 - **Busy levels**: `check` and `build` warn when one level holds more than 16 boxes or 30 arrows, and name the boxes with the most arrows.
@@ -103,7 +104,6 @@ Version 0.1, view only. Local git repository, no remote. Dependencies: `elkjs` a
 
 `playground/index.html` is a small page built on it: YAML on the left, the live diagram on the right, and a button that downloads the page. Serve the repository folder with any static file server and open `/playground/`. The diagram is shown in a sandboxed frame. Layout runs on the page's main thread, so a very large diagram (300 boxes) holds the page for several seconds.
 
-## Experiment: placement without the layout engine
+## Placement
 
-`--own` on `check`, `build` or `shot` places boxes with `src/layered.js` in place of ELK, and draws every arrow with strata's own router. It exists to find out whether the engine, which is nearly all of the command's size, can go. It is not the default and the second layout pass (`--twice`) does nothing with it.
-
+Boxes are placed by `src/layered.js`, strata's own layered placement: rows by flow, order within a row by fewest crossings, positions that keep a flow's spine straight, unconnected parts packed into a screen-shaped block. Every arrow is drawn by the router in `src/layout.js`. `--elk` places boxes with the ELK library instead; it is kept for comparison while the two are measured against each other, and is the only reason the command still carries ELK.

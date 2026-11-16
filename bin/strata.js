@@ -44,11 +44,11 @@ if (cmd === 'gen') {
   process.exit(0);
 }
 const opt = name => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null; };
-const usage = () => { console.error('usage: strata --version\n       strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--twice] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
+const usage = () => { console.error('usage: strata --version\n       strata facts go <dir> [--only path] [-o facts.md]\n       strata check|build|shot <file.yaml> [--summary] [--stats] [--once] [-o out] [--at id] [--hide tag] [--show tag] [--hot id] [--only style] [--size WxH]'); process.exit(2); };
 if (!cmd || !file || !['check', 'build', 'shot'].includes(cmd)) usage();
 
 let model;
-try { model = await layout(load(await readFile(file, 'utf8')), { twice: rest.includes('--twice'), engine: rest.includes('--own') ? 'own' : 'elk' }); } // --twice: a second layout that arranges each level toward where its arrows leave; slower
+try { model = await layout(load(await readFile(file, 'utf8')), { twice: !rest.includes('--once'), engine: rest.includes('--elk') ? 'elk' : 'own' }); } // --once: skip the layouts that arrange each level toward where its arrows leave; --elk: place boxes with ELK, for comparison
 catch (e) { console.error(`${file}: ${e.problems ? e.problems.length + ' problem(s)' : 'error'}\n${e.message}`); process.exit(1); }
 for (const w of [...model.warnings, ...legibility(model), ...busy(model)]) console.error('warning: ' + w);
 const stem = basename(file).replace(/\.ya?ml$/, '');

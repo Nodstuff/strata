@@ -5,7 +5,7 @@ import { layout } from './layout.js';
 import { html, legibility, busy, outline } from './build.js';
 
 // YAML text in, one self-contained HTML page out. Throws an Error whose message lists the problems.
-export async function render(text, { twice = false } = {}) {
+export async function render(text, { twice = true } = {}) {
   const model = await layout(load(text), { twice });
   const o = outline(model);
   return { html: await html(model), title: model.title, boxes: o.boxes, arrows: o.arrows, depth: o.depth,
