@@ -359,7 +359,10 @@ async function layoutOnce(model, hints) {
     const wanted = []; // one route per entry
     for (const [key, p] of pairs) {
       const lab = text => (text ? [{ text, width: text.length * 6.2 + 12, height: 16 }] : []);
-      const merged = p.items.length > 1 || !p.items[0].direct ? 'NN links' : model.edges[p.items[0].i].label; // a merged arrow's text is decided on screen; hold room for it
+      // the text the viewer will show on this arrow, so the room held for it is the room it needs: one arrow's own
+      // label, or for several "N links" (or the label they share, with a count) and what the worst style among them is called
+      const labs = p.items.map(it => model.edges[it.i].label), worst = p.items.map(it => model.styles[model.edges[it.i].style]).reduce((w, st) => ((st.rank ?? 0) > (w.rank ?? 0) ? st : w));
+      const merged = p.items.length === 1 ? labs[0] : (labs.every(l => l && l === labs[0]) ? `${labs[0]} xNN` : 'NN links') + (worst.label && worst.color ? ` · all ${worst.label}` : '');
       // several arrows declared between the same two boxes (a decision's Yes and No) each keep their own route
       // the family an arrow belongs to, for sharing a trunk: the style it will be drawn in, and the box at either end
       const sty = p.items.map(it => model.edges[it.i].style).reduce((w, n) => ((model.styles[n].rank ?? 0) > (model.styles[w].rank ?? 0) ? n : w));
@@ -586,6 +589,31 @@ async function layoutOnce(model, hints) {
         if (on) shared = true; else if (!best || len > best[2]) best = [r1((a[0] + b[0]) / 2), r1((a[1] + b[1]) / 2), r1(len)];
       }
       if (shared && best) r.m = best;
+    }
+    // A label sits where it is clear of every box and of the labels already placed, on its arrow's
+    // longest stretch if it can and as near that stretch's middle as it can. (The viewer's fallback,
+    // the middle of the longest stretch, puts a label half behind a box when the stretch runs beside one.)
+    {
+      const taken = [], hitBox = (x, y, w, h) => nd.children.some(c => x < c.x + c.w + 3 && c.x < x + w + 3 && y < c.y + c.h + 3 && c.y < y + h + 3);
+      const hitLabel = (x, y, w, h) => taken.some(t => x < t[0] + t[2] + 4 && t[0] < x + w + 4 && y < t[1] + t[3] + 3 && t[1] < y + h + 3);
+      for (const w of wanted) {
+        const r = nd.routes[w.id], lab = w.labels[0]; if (!r || r.l || r.m || !lab) continue;
+        const lw = lab.width, lh = 16; let best = null;
+        const lines = nd.occ.filter(o => o.tag !== w.id);
+        for (let i = 0; i < r.p.length - 1; i++) {
+          const a = r.p[i], b = r.p[i + 1], flat = Math.abs(a[1] - b[1]) < 0.05, k = flat ? 0 : 1, lo = Math.min(a[k], b[k]), hi = Math.max(a[k], b[k]), len = hi - lo, half = (flat ? lw : lh) / 2 + 3;
+          if (len < 2 * half) continue;
+          const mid = (lo + hi) / 2, room = len / 2 - half;
+          for (let step = 0; step <= 8; step++) for (const sign of step ? [1, -1] : [1]) {
+            const at = mid + sign * room * step / 8, cx = flat ? at : a[0], cy = flat ? a[1] : at, x = cx - lw / 2, y = cy - lh / 2;
+            if (x < 2 || y < 2 || x + lw > W - 2 || y + lh > H - 2 || hitBox(x, y, lw, lh) || hitLabel(x, y, lw, lh)) continue;
+            const over = lines.filter(o => Math.min(o.a[0], o.b[0]) < x + lw && Math.max(o.a[0], o.b[0]) > x && Math.min(o.a[1], o.b[1]) < y + lh && Math.max(o.a[1], o.b[1]) > y).length; // other arrows' lines under the label
+            const cost = 60 * over + room * step / 8 - 0.2 * len - (flat ? 12 : 0);
+            if (!best || cost < best[2]) best = [cx, cy, cost];
+          }
+        }
+        if (best) { r.l = [r1(best[0]), r1(best[1])]; taken.push([best[0] - lw / 2, best[1] - lh / 2, lw, lh]); }
+      }
     }
     // the box this container is drawn as inside its parent
     if (nd.group) { nd.w = W; nd.h = H; }                    // a group is a frame at its parent's own scale

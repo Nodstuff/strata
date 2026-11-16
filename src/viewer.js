@@ -323,7 +323,18 @@ function draw() {
         const pu = cp.L.sw / cp.L.iw, l = cp.l && [cp.L.sx + cp.l[0] * pu, cp.L.sy + cp.l[1] * pu];
         if (l && l[0] > 20 && l[0] < vw - 20 && l[1] > 56 && l[1] < vh - 50) { if (pu >= 0.66) midLabels.push({ x: l[0], y: l[1], len: 1e9, text, alpha: la, lit, col: st.c, f: Math.min(10.5, 10.5 * pu) }); } // the spot the layout kept free for it
         else if (cp.m) midLabels.push({ x: cp.L.sx + cp.m[0] * pu, y: cp.L.sy + cp.m[1] * pu, len: cp.m[2] * pu, text, alpha: la, lit, col: st.c }); // its own stretch, off the shared trunk
-        else { let best = 0, bi = 0; for (let i = 0; i < n - 1; i++) if (seg(i) > best) { best = seg(i); bi = i; } midLabels.push({ x: (pts[bi][0] + pts[bi + 1][0]) / 2, y: (pts[bi][1] + pts[bi + 1][1]) / 2, len: best, text, alpha: la, lit, col: st.c }); }
+        else { // the longest stretch where the label is clear of the boxes beside the line; failing that, the longest stretch
+          const lw = text.length * 6.2 + 14, lh = 16, kids = cp.L.children || [];
+          const clearAt = (x, y) => !kids.some(c => c.on && x - lw / 2 < c.sx + c.sw + 2 && c.sx < x + lw / 2 + 2 && y - lh / 2 < c.sy + c.sh + 2 && c.sy < y + lh / 2 + 2);
+          let best = 0, bi = 0, spot = null;
+          for (let i = 0; i < n - 1; i++) {
+            const len = seg(i); if (len > best) { best = len; bi = i; }
+            if (len < 24 || (spot && len <= spot[2])) continue;
+            for (const t of [0.5, 0.35, 0.65, 0.2, 0.8]) { const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, y = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t; if (clearAt(x, y)) { spot = [x, y, len]; break; } }
+          }
+          if (spot) midLabels.push({ x: spot[0], y: spot[1], len: spot[2], text, alpha: la, lit, col: st.c });
+          else midLabels.push({ x: (pts[bi][0] + pts[bi + 1][0]) / 2, y: (pts[bi][1] + pts[bi + 1][1]) / 2, len: best, text, alpha: la, lit, col: st.c });
+        }
       }
       continue;
     }
