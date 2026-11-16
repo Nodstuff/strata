@@ -2,12 +2,12 @@
 # Runs the strata command for the skill. In order: a strata already on the PATH, a binary beside this
 # file, then one built from this repository's source with Go (built once, kept in the user's cache).
 set -eu
-here="$(cd "$(dirname "$0")" && pwd)"
+here="$(cd "$(dirname "$0")" && pwd -P)" # the real folder, when the skill is installed as a link
 if command -v strata >/dev/null 2>&1 && [ "$(command -v strata)" != "$here/strata" ]; then exec strata "$@"; fi
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"; arch="$(uname -m)"
 case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 if [ -x "$here/strata-$os-$arch" ]; then exec "$here/strata-$os-$arch" "$@"; fi
-root="$(cd "$here/../.." && pwd)"
+root="$(cd "$here/../.." && pwd -P)"
 if [ -f "$root/go.mod" ] && command -v go >/dev/null 2>&1; then
   stamp="$( (cd "$root" && git rev-parse --short HEAD 2>/dev/null) || cksum < "$root/go.mod" | cut -d' ' -f1)"
   bin="${XDG_CACHE_HOME:-$HOME/.cache}/strata/$stamp/strata"
