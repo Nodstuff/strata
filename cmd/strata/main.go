@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"strata"
+	"strata/internal/gofacts"
 	"strata/internal/jsx"
 	"strata/internal/layout"
 	"strata/internal/model"
@@ -59,9 +60,12 @@ func run(args []string) int {
 		fmt.Println(version())
 		return 0
 	}
-	if cmd == "facts" || cmd == "gen" {
-		fmt.Fprintln(os.Stderr, "not in the Go build yet")
+	if cmd == "gen" {
+		fmt.Fprintln(os.Stderr, "strata gen was removed: use `strata facts go` and draw the diagram from the facts")
 		return 2
+	}
+	if cmd == "facts" {
+		return facts(args[1:])
 	}
 	has := func(name string) bool {
 		for _, a := range rest {
@@ -172,6 +176,46 @@ func run(args []string) int {
 	default:
 		return shot(m, stem, opt)
 	}
+	return 0
+}
+
+// facts prints what a Go module's code says about its architecture: strata facts go <dir> [--only path] [-o facts.md].
+func facts(args []string) int {
+	opt := func(name string) string {
+		for i, a := range args {
+			if i > 1 && a == name && i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		return ""
+	}
+	if len(args) < 2 || args[0] != "go" || args[1] == "" {
+		fmt.Fprintln(os.Stderr, "usage: strata facts go <dir> [--only <path inside the module>] [-o facts.md]")
+		return 2
+	}
+	dir, err := filepath.Abs(args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	report, err := gofacts.Report(dir, opt("--only"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if out := opt("-o"); out != "" {
+		if err := os.WriteFile(out, []byte(report), 0o644); err != nil {
+			if os.IsNotExist(err) {
+				err = fmt.Errorf("ENOENT: no such file or directory, open '%s'", out)
+			}
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		abs, _ := filepath.Abs(out)
+		fmt.Println("ok · " + abs)
+		return 0
+	}
+	fmt.Print(report)
 	return 0
 }
 

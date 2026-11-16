@@ -1,0 +1,46 @@
+# Facts read from example.com/shop
+
+Read from the code, offline. Each line is a fact, not a judgement: what it means for the architecture is for the reader to decide.
+
+## Programs (package main) and the outside systems each one reaches through its imports
+
+- cmd/shopd: AWS DynamoDB, AWS SQS, Postgres · Command shopd serves the shop's HTTP API.
+- cmd/worker: AWS DynamoDB, AWS SQS, NATS, Postgres, Slack, Stripe · Command worker turns order events into payments and notices.
+
+## Outside systems and the packages that hold a client for each
+
+- AWS DynamoDB (cloud): internal/store
+- AWS SQS (cloud): internal/store
+- NATS (store): internal/events
+- Postgres (store): internal/store
+- Slack (api): internal/notify
+- Stripe (api): internal/payments
+
+## NATS streams and key-value buckets named in the code
+
+- bucket carts · internal/events (uses) · internal/events/events.go:16
+- stream ORDERS [orders.new, orders.paid.*] · internal/events (consumes, defines, publishes) · internal/events/events.go:15
+
+## HTTP routes by package, grouped by the start of the path (count, first place registered)
+
+- internal/orders: 4 routes
+  - /api/orders (2; GET POST) internal/orders/orders.go:13
+  - /api/orders/{id} (2; DELETE GET) internal/orders/orders.go:15
+- internal/web: 4 routes
+  - /api/catalog/items (2; any method) internal/web/web.go:15
+  - /static/ (1; any method) internal/web/web.go:13
+  - /healthz (1; any method) internal/web/web.go:14
+
+## Packages most of the module imports (shared code, not architecture)
+
+internal/model (7)
+
+## Hosts written in the code that are not a known service
+
+status.shop-partner.io
+
+## What this cannot see
+
+- Anything decided at run time: a subject or URL built from variables, a host that comes from configuration.
+- Which program runs where, how many copies, and what the network allows: read the deployment files for that.
+- A system called over plain HTTP with no SDK and no URL in the code.

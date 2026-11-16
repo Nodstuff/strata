@@ -67,10 +67,11 @@ func TestVersionAndStubs(t *testing.T) {
 	if out, code := capture(t, "--version"); code != 0 || !strings.HasPrefix(out, "0.") {
 		t.Errorf("--version gave %q (exit %d)", out, code)
 	}
-	for _, c := range []string{"facts", "gen"} {
-		if _, code := capture(t, c, "go", "."); code != 2 {
-			t.Errorf("%s: exit code %d, want 2", c, code)
-		}
+	if _, code := capture(t, "gen", "go", "."); code != 2 {
+		t.Errorf("gen: exit code %d, want 2", code)
+	}
+	if _, code := capture(t, "facts", "rust", "."); code != 2 {
+		t.Errorf("facts rust: exit code %d, want 2", code)
 	}
 }
 
